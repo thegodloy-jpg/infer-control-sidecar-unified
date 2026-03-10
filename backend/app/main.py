@@ -23,6 +23,12 @@
        - 监控子进程状态，异常退出时自动拉起（守护进程模式）
        - 处理系统信号（SIGINT/SIGTERM）实现优雅退出
 
+    4. 分布式协调（DISTRIBUTED=true 时激活）
+       - 通过 NODE_RANK 或 IP 比较自动判断 master/worker 角色
+       - Master: 生成 rank0 脚本 + 启动 Master API + 等待 Worker 注册后分发启动指令
+       - Worker: 启动 Worker API + 向 Master 注册 + 接收启动指令写入共享卷
+       - 支持 NODE_IPS 中的 DNS 名称（通过 _resolve() 解析后比较）
+
 Sidecar 架构说明：
     ┌─────────────────────────────────────────────────────────────┐
     │                      K8s Pod                                │
@@ -435,7 +441,11 @@ def _wait_and_distribute_to_workers(
     start_time = time.time()
 
     def _resolve(host: str) -> str:
-        """Resolve DNS name to IP; return as-is if already an IP or lookup fails."""
+        """将 DNS 名称解析为 IP 地址；已是 IP 或解析失败时原样返回。
+
+        用于处理 NODE_IPS 中可能包含的 DNS 名称（如 'infer-1.infer-hl'），
+        使其能与 Worker 注册时上报的 Pod IP 进行正确比较。
+        """
         try:
             return socket.gethostbyname(host)
         except socket.error:
