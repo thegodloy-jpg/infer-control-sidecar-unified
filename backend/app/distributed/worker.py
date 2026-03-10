@@ -225,15 +225,24 @@ def register_with_master():
 
 
 def send_heartbeat():
-    """后台线程：定期向 Master 发送心跳。"""
+    """后台线程：定期向 Master 发送心跳，失败时指数退避。"""
+    consecutive_failures = 0
+    max_backoff = 300  # 最大退避间隔（秒）
     while True:
         try:
             heartbeat_url = f"{config.master_url}/api/heartbeat"
             data = {"node_id": config.node_id, "workload": 0.0}
-            requests.post(heartbeat_url, json=data)
+            requests.post(heartbeat_url, json=data, timeout=10)
+            consecutive_failures = 0  # 成功则重置
         except Exception as e:
-            logger.error("Heartbeat failed: %s", e)
-        time.sleep(config.heartbeat_interval)
+            consecutive_failures += 1
+            logger.error("Heartbeat failed (attempt %d): %s", consecutive_failures, e)
+        # 指数退避：正常时用 heartbeat_interval，失败时按 2^n 增长到 max_backoff
+        if consecutive_failures > 0:
+            backoff = min(config.heartbeat_interval * (2 ** consecutive_failures), max_backoff)
+            time.sleep(backoff)
+        else:
+            time.sleep(config.heartbeat_interval)
 
 
 # ---------------------------------------------------------------------------

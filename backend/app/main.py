@@ -306,6 +306,23 @@ def _determine_role() -> str:
     if not distributed:
         return "standalone"
 
+    # 优先检查 NODE_RANK 环境变量：
+    # hostNetwork 模式下同一宿主机的多个 Pod 共享 IP，
+    # 无法通过 RANK_IP vs MASTER_IP 区分角色。
+    # 此时显式设置 NODE_RANK 可直接确定角色，跳过 IP 比较。
+    node_rank_env = os.getenv("NODE_RANK", "").strip()
+    if node_rank_env:
+        try:
+            rank = int(node_rank_env)
+            if rank == 0:
+                logger.info("Role determined: MASTER (NODE_RANK=0)")
+                return "master"
+            else:
+                logger.info("Role determined: WORKER (NODE_RANK=%d)", rank)
+                return "worker"
+        except ValueError:
+            logger.warning("NODE_RANK=%s is not an integer, falling back to IP comparison", node_rank_env)
+
     master_ip = get_master_ip()
     local_ip = get_local_ip()
 
@@ -591,8 +608,18 @@ def _run_worker_mode(
     logger.info("Worker API starting, registering with master at %s", master_ip)
     time.sleep(2)  # 等待 Worker 就绪
 
-    # ---- 2. 仅启动 health 子服务（非 rank0 不需要 proxy） ----
-    processes = [p for p in _build_processes(port_plan) if p.name == "health"]
+    # ---- 2. 启动 health 子服务（使用偏移端口避免 hostNetwork 冲突） ----
+    # Worker 的 health 端口在基准端口上偏移 +1（如 19000 → 19001），
+    # 避免 hostNetwork 模式下与同一宿主机上 Master Pod 的 19000 端口冲突。
+    # K8s StatefulSet 中 Worker Pod 的 readinessProbe/livenessProbe 需对应配置。
+    worker_health_port = port_plan.health_port + 1
+    worker_port_plan = PortPlan(
+        enable_proxy=port_plan.enable_proxy,
+        backend_port=port_plan.backend_port,
+        proxy_port=port_plan.proxy_port,
+        health_port=worker_health_port,
+    )
+    processes = [p for p in _build_processes(worker_port_plan) if p.name == "health"]
     for proc in processes:
         _start(proc)
 
@@ -609,7 +636,7 @@ def _run_worker_mode(
     logger.info(
         "Worker mode running: health=%d "
         "(waiting for master to dispatch engine start)",
-        port_plan.health_port,
+        worker_health_port,
     )
 
     try:
