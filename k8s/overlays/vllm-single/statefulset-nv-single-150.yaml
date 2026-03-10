@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: infer
+  namespace: wings-infer
+spec:
+  serviceName: infer-hl
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: infer-vllm
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: infer-vllm
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: 5b590a43256c
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      volumes:
+      - name: shared-volume
+        emptyDir: {}
+      - name: model-volume
+        hostPath:
+          path: /mnt/models
+          type: DirectoryOrCreate
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 4Gi
+      - name: dev-nvidia2
+        hostPath:
+          path: /dev/nvidia2
+          type: CharDevice
+      - name: dev-nvidiactl
+        hostPath:
+          path: /dev/nvidiactl
+          type: CharDevice
+      - name: dev-nvidia-uvm
+        hostPath:
+          path: /dev/nvidia-uvm
+          type: CharDevice
+      - name: nvidia-libs
+        hostPath:
+          path: /mnt/nvidia-libs
+          type: Directory
+      containers:
+      # ---------------------------------------------------------------
+      # wings-infer: 引擎/模型参数已写死在 Dockerfile ENTRYPOINT 中
+      # ---------------------------------------------------------------
+      - name: wings-infer
+        image: wings-infer:unified-zhanghui
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: WINGS_SKIP_PID_CHECK
+          value: "true"
+        - name: BACKEND_URL
+          value: "http://127.0.0.1:17000"
+        volumeMounts:
+        - name: shared-volume
+          mountPath: /shared-volume
+        - name: model-volume
+          mountPath: /models
+          readOnly: true
+      - name: engine
+        image: vllm/vllm-openai:v0.13.0
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          privileged: true
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          echo '[engine] Waiting for start_command.sh...'
+          while [ ! -f /shared-volume/start_command.sh ]; do sleep 2; done
+          echo '[engine] start_command.sh found, executing:'
+          cat /shared-volume/start_command.sh
+          export LD_LIBRARY_PATH=/mnt/nvidia-libs:${LD_LIBRARY_PATH:-}
+          cd /shared-volume && bash start_command.sh
+        env:
+        - name: CUDA_VISIBLE_DEVICES
+          value: "2"
+        volumeMounts:
+        - name: shared-volume
+          mountPath: /shared-volume
+        - name: model-volume
+          mountPath: /models
+          readOnly: true
+        - name: dev-nvidia2
+          mountPath: /dev/nvidia2
+        - name: dev-nvidiactl
+          mountPath: /dev/nvidiactl
+        - name: dev-nvidia-uvm
+          mountPath: /dev/nvidia-uvm
+        - name: nvidia-libs
+          mountPath: /mnt/nvidia-libs
+        - name: dshm
+          mountPath: /dev/shm

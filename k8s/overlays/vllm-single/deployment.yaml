@@ -1,0 +1,78 @@
+# =============================================================================
+# Deployment: vLLM 单机推理 (NVIDIA GPU)
+# 引擎和模型参数已写死在 Dockerfile ENTRYPOINT 中:
+#   --engine vllm --model-name DeepSeek-R1-Distill-Qwen-1.5B
+#   --model-path /models/... --device-count 1 --trust-remote-code
+# YAML 中仅保留运行时配置（WINGS_SKIP_PID_CHECK / BACKEND_URL）
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: infer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: infer-vllm
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: infer-vllm
+    spec:
+      volumes:
+        - name: shared-volume
+          emptyDir: {}
+        - name: model-volume
+          hostPath:
+            path: /mnt/models                           # CUSTOMIZE
+            type: DirectoryOrCreate
+
+      containers:
+        - name: wings-infer
+          image: wings-infer:latest                      # CUSTOMIZE
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 18000
+            - containerPort: 19000
+          env:
+            - name: WINGS_SKIP_PID_CHECK
+              value: "true"
+            - name: BACKEND_URL
+              value: "http://127.0.0.1:17000"
+          volumeMounts:
+            - name: shared-volume
+              mountPath: /shared-volume
+            - name: model-volume
+              mountPath: /models
+              readOnly: true
+          resources:
+            requests: { cpu: "500m", memory: "1Gi" }
+            limits: { cpu: "2", memory: "4Gi" }
+          readinessProbe:
+            httpGet: { path: /health, port: 19000 }
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 36
+          livenessProbe:
+            httpGet: { path: /health, port: 19000 }
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            failureThreshold: 5
+
+        - name: engine
+          image: vllm/vllm-openai:latest                 # CUSTOMIZE
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              while [ ! -f /shared-volume/start_command.sh ]; do sleep 2; done
+              cd /shared-volume && bash start_command.sh
+          volumeMounts:
+            - name: shared-volume
+              mountPath: /shared-volume
+            - name: model-volume
+              mountPath: /models
+              readOnly: true
+          resources:
+            requests: { cpu: "4", memory: "16Gi" }
+            limits: { cpu: "16", memory: "48Gi" }
