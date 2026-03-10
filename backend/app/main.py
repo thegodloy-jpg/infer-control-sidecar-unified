@@ -434,15 +434,25 @@ def _wait_and_distribute_to_workers(
     poll_interval = 5
     start_time = time.time()
 
+    def _resolve(host: str) -> str:
+        """Resolve DNS name to IP; return as-is if already an IP or lookup fails."""
+        try:
+            return socket.gethostbyname(host)
+        except socket.error:
+            return host
+
     while time.time() - start_time < max_wait_sec:
         try:
             resp = _requests.get(f"{master_url}/api/nodes", timeout=10)
             resp.raise_for_status()
             registered = {n["ip"] for n in resp.json().get("nodes", [])}
-            if all(ip in registered for ip in worker_ips):
+            # NODE_IPS may contain DNS names (e.g. "infer-1.infer-hl");
+            # registered set contains actual Pod IPs. Resolve before comparison.
+            resolved_workers = {_resolve(ip) for ip in worker_ips}
+            if resolved_workers.issubset(registered):
                 logger.info(
-                    "All %d worker nodes registered with master",
-                    len(worker_ips),
+                    "All %d worker nodes registered with master (resolved: %s)",
+                    len(worker_ips), resolved_workers,
                 )
                 break
         except Exception as exc:

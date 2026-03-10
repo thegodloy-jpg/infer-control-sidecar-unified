@@ -206,22 +206,39 @@ async def node_info():
 # Master registration & heartbeat
 # ---------------------------------------------------------------------------
 
-def register_with_master():
-    """向 Master 注册本节点。"""
+def register_with_master(max_retries: int = 30, retry_interval: float = 5.0):
+    """向 Master 注册本节点，带重试机制。
+
+    分布式场景下（尤其 podManagementPolicy=Parallel），Worker 和 Master
+    同时启动，Worker 首次注册往往早于 Master API 就绪。
+    通过轮询重试确保最终注册成功。
+    """
     register_url = f"{config.master_url}/api/nodes/register"
     data = {
         "node_id": config.node_id,
         "ip": config.ip,
         "port": config.port,
     }
-    try:
-        response = requests.post(register_url, json=data)
-        response.raise_for_status()
-        logger.info(
-            "Successfully registered with master node: %s", config.master_url
-        )
-    except Exception as e:
-        logger.error("Registration failed: %s", e)
+    for attempt in range(1, max_retries + 1):
+        try:
+            response = requests.post(register_url, json=data, timeout=10)
+            response.raise_for_status()
+            logger.info(
+                "Successfully registered with master node: %s (attempt %d)",
+                config.master_url,
+                attempt,
+            )
+            return
+        except Exception as e:
+            logger.warning(
+                "Registration attempt %d/%d failed: %s",
+                attempt, max_retries, e,
+            )
+            if attempt < max_retries:
+                time.sleep(retry_interval)
+    logger.error(
+        "Registration failed after %d attempts, giving up", max_retries
+    )
 
 
 def send_heartbeat():
