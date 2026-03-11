@@ -65,8 +65,8 @@ from .tags import (
 )
 from .speaker_logging import configure_worker_logging
 
-# 健康状态机在 `health.py` 中维护，gateway 只负责对外暴露结果。
-from .health import (
+# 健康状态机在 `health_router.py` 中维护，gateway 只负责对外暴露结果。
+from .health_router import (
     setup_health_monitor,
     teardown_health_monitor,
     map_http_code_from_state,
