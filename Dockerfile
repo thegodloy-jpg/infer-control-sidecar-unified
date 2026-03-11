@@ -29,11 +29,11 @@ RUN apt-get update && apt-get install -y \
     netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
-COPY backend/requirements.txt .
+COPY wings-control/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY backend/app ./app
-COPY wings_start.sh ./wings_start.sh
+COPY wings-control/app ./app
+COPY wings-control/wings_start.sh ./wings_start.sh
 RUN sed -i 's/\r//' ./wings_start.sh && chmod +x ./wings_start.sh
 
 RUN ls -la /app/app/ \

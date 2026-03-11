@@ -22,7 +22,7 @@ echo "========================================="
 echo "开始构建 wings-accel 镜像"
 echo "========================================="
 
-cd "$SCRIPT_DIR/wings-accel"
+cd "$SCRIPT_DIR"
 
 if [ ! -f "Dockerfile" ]; then
     echo "错误: wings-accel/Dockerfile 不存在"

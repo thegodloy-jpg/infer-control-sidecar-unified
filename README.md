@@ -72,19 +72,23 @@ curl http://localhost:19000/health
 ```
 infer-control-sidecar-unified/
 ├── Dockerfile                        # Sidecar 镜像
-├── wings_start.sh                    # 启动入口 (ENTRYPOINT)
 ├── .env.example                      # 环境变量模板
-├── build-accel-image.sh              # Accel 镜像构建
-├── wings-control/app/
-│   ├── main.py                       # 主入口 (角色分发)
-│   ├── config/                       # 配置 (settings.py + 引擎默认 JSON)
-│   ├── core/                         # 核心 (config_loader · engine_manager · hardware_detect · wings_entry)
-│   ├── engines/                      # 适配器 (vllm · sglang · mindie)
-│   ├── distributed/                  # 分布式 (master · worker · monitor · scheduler)
-│   ├── proxy/                        # 代理 (gateway · health · queueing)
-│   └── utils/                        # 工具 (env · file · device · model · noise_filter · process)
-├── k8s/{base,overlays/}              # Kustomize (8 个部署 overlay)
+├── wings-control/                    # 后端控制服务
+│   ├── wings_start.sh                # 启动入口 (ENTRYPOINT)
+│   ├── requirements.txt
+│   └── app/
+│       ├── main.py                   # 主入口 (角色分发)
+│       ├── config/                   # 配置 (settings.py)
+│       │   └── defaults/             # 引擎默认 JSON 配置
+│       ├── core/                     # 核心 (config_loader · engine_manager · hardware_detect)
+│       ├── engines/                  # 适配器 (vllm · sglang · mindie)
+│       ├── distributed/              # 分布式 (master · worker · monitor · scheduler)
+│       ├── proxy/                    # 代理 (gateway · health_router · queueing)
+│       ├── rag_acc/                  # RAG 加速 (rag_app · document_processor · templates)
+│       └── utils/                    # 工具 (env · file · device · model · noise_filter)
 ├── wings-accel/                      # 加速包 (可选 initContainer)
+│   └── build-accel-image.sh          # Accel 镜像构建脚本
+├── k8s/{base,overlays/}              # Kustomize (8 个部署 overlay)
 └── docs/                             # 详细文档 (deploy/ · verify/)
 ```
 
@@ -253,7 +257,7 @@ livenessProbe:
 可选的 initContainer，将 `wings_engine_patch` 注入 engine 容器：
 
 ```bash
-bash build-accel-image.sh  # 构建 wings-accel:latest
+bash wings-accel/build-accel-image.sh  # 构建 wings-accel:latest
 ```
 
 启用: 设置 `ENABLE_ACCEL=true`，sidecar 自动注入 `WINGS_ENGINE_PATCH_OPTIONS`
