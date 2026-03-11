@@ -12,7 +12,7 @@
 ```bash
 # 1. 构建镜像
 cd infer-control-sidecar-unified/
-docker build -t wings-infer:latest .
+docker build -t wings-infer:latest wings-control/
 
 # 2. 单容器测试（仅生成启动脚本）
 docker run --rm -it \
@@ -71,9 +71,9 @@ curl http://localhost:19000/health
 
 ```
 infer-control-sidecar-unified/
-├── Dockerfile                        # Sidecar 镜像
 ├── .env.example                      # 环境变量模板
 ├── wings-control/                    # 后端控制服务
+│   ├── Dockerfile                    # Sidecar 镜像
 │   ├── wings_start.sh                # 启动入口 (ENTRYPOINT)
 │   ├── requirements.txt
 │   └── app/
