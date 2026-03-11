@@ -25,7 +25,7 @@ docker run --rm -it \
 curl http://localhost:19000/health
 ```
 
-更多场景参见 [doc/QUICKSTART.md](doc/QUICKSTART.md)
+更多场景参见 [docs/QUICKSTART.md](docs/QUICKSTART.md)
 
 ---
 
@@ -75,7 +75,7 @@ infer-control-sidecar-unified/
 ├── wings_start.sh                    # 启动入口 (ENTRYPOINT)
 ├── .env.example                      # 环境变量模板
 ├── build-accel-image.sh              # Accel 镜像构建
-├── backend/app/
+├── wings-control/app/
 │   ├── main.py                       # 主入口 (角色分发)
 │   ├── config/                       # 配置 (settings.py + 引擎默认 JSON)
 │   ├── core/                         # 核心 (config_loader · engine_manager · hardware_detect · wings_entry)
@@ -85,7 +85,7 @@ infer-control-sidecar-unified/
 │   └── utils/                        # 工具 (env · file · device · model · noise_filter · process)
 ├── k8s/{base,overlays/}              # Kustomize (8 个部署 overlay)
 ├── wings-accel/                      # 加速包 (可选 initContainer)
-└── doc/                              # 详细文档
+└── docs/                             # 详细文档 (deploy/ · verify/)
 ```
 
 ---
@@ -258,7 +258,7 @@ bash build-accel-image.sh  # 构建 wings-accel:latest
 
 启用: 设置 `ENABLE_ACCEL=true`，sidecar 自动注入 `WINGS_ENGINE_PATCH_OPTIONS`
 
-详情: [doc/deploy-accel.md](doc/deploy-accel.md)
+详情: [docs/deploy/deploy-accel.md](docs/deploy/deploy-accel.md)
 
 ---
 
@@ -320,7 +320,7 @@ kubectl exec -it deploy/infer -c wings-infer -- cat /shared-volume/start_command
 kubectl exec -it deploy/infer -c wings-infer -- curl localhost:19000/health/detail
 ```
 
-详情: [doc/troubleshooting.md](doc/troubleshooting.md)
+详情: [docs/troubleshooting.md](docs/troubleshooting.md)
 
 ---
 
@@ -328,13 +328,13 @@ kubectl exec -it deploy/infer -c wings-infer -- curl localhost:19000/health/deta
 
 | 文档 | 说明 |
 |------|------|
-| [快速上手](doc/QUICKSTART.md) | 6 步构建到推理 |
-| [架构详解](doc/architecture.md) | 模块·端口·状态机 |
-| [故障排查](doc/troubleshooting.md) | 9 类问题 |
-| [vLLM](doc/deploy-vllm.md) · [vLLM-Ascend](doc/deploy-vllm-ascend.md) · [SGLang](doc/deploy-sglang.md) · [MindIE](doc/deploy-mindie.md) | 引擎部署 |
-| [Accel](doc/deploy-accel.md) | 加速包 |
-| [版本差异](doc/version-diff-report.md) | wings vs unified |
-| [Bug 修复](BUG_FIX_REPORT.md) | 9 Bug 详情 |
+| [快速上手](docs/QUICKSTART.md) | 6 步构建到推理 |
+| [架构详解](docs/architecture.md) | 模块·端口·状态机 |
+| [故障排查](docs/troubleshooting.md) | 9 类问题 |
+| [vLLM](docs/deploy/deploy-vllm.md) · [vLLM-Ascend](docs/deploy/deploy-vllm-ascend.md) · [SGLang](docs/deploy/deploy-sglang.md) · [MindIE](docs/deploy/deploy-mindie.md) | 引擎部署 |
+| [Accel](docs/deploy/deploy-accel.md) | 加速包 |
+| [版本差异](docs/version-diff-report.md) | wings vs unified |
+| [Bug 修复](docs/BUG_FIX_REPORT.md) | 9 Bug 详情 |
 
 ## License
 
