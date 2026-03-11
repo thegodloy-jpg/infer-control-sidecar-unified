@@ -112,13 +112,13 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: 2Gi
-        - name: davinci0
+        - name: davinci3
           hostPath:
-            path: /dev/davinci0
+            path: /dev/davinci3
             type: CharDevice
-        - name: davinci1
+        - name: davinci4
           hostPath:
-            path: /dev/davinci1
+            path: /dev/davinci4
             type: CharDevice
         - name: davinci-manager
           hostPath:
@@ -237,7 +237,9 @@ spec:
           args:
             - |
               ORDINAL=${POD_NAME##*-}
-              export ASCEND_VISIBLE_DEVICES=$ORDINAL
+              # NPU 3 和 4 空闲, 映射: ordinal 0 → NPU 3, ordinal 1 → NPU 4
+              NPU_ID=$((ORDINAL + 3))
+              export ASCEND_VISIBLE_DEVICES=$NPU_ID
               echo "[engine] POD_NAME=$POD_NAME ordinal=$ORDINAL NPU=$ASCEND_VISIBLE_DEVICES POD_IP=$POD_IP"
               echo "[engine] Waiting for start_command.sh..."
               while [ ! -f /shared-volume/start_command.sh ]; do sleep 2; done
@@ -269,10 +271,10 @@ spec:
             - name: model-volume
               mountPath: /models
               readOnly: true
-            - name: davinci0
-              mountPath: /dev/davinci0
-            - name: davinci1
-              mountPath: /dev/davinci1
+            - name: davinci3
+              mountPath: /dev/davinci3
+            - name: davinci4
+              mountPath: /dev/davinci4
             - name: davinci-manager
               mountPath: /dev/davinci_manager
             - name: hisi-hdc

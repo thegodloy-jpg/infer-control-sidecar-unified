@@ -74,9 +74,28 @@ from .health_router import (
     build_health_headers,
 )
 
-# RAG 加速 — 从 v2 迁移
-from app.rag_acc.rag_app import is_rag_scenario, rag_acc_chat
-from app.rag_acc.extract_dify_info import is_dify_scenario, extract_dify_info
+# RAG 加速 — 从 v2 迁移（lazy import，因 fastchat 为可选依赖）
+_rag_imported = False
+is_rag_scenario = None
+rag_acc_chat = None
+is_dify_scenario = None
+extract_dify_info = None
+
+def _ensure_rag_imports():
+    global _rag_imported, is_rag_scenario, rag_acc_chat, is_dify_scenario, extract_dify_info
+    if _rag_imported:
+        return True
+    try:
+        from app.rag_acc.rag_app import is_rag_scenario as _isr, rag_acc_chat as _rac
+        from app.rag_acc.extract_dify_info import is_dify_scenario as _ids, extract_dify_info as _edi
+        is_rag_scenario = _isr
+        rag_acc_chat = _rac
+        is_dify_scenario = _ids
+        extract_dify_info = _edi
+        _rag_imported = True
+        return True
+    except ImportError:
+        return False
 
 configure_worker_logging()
 
@@ -889,6 +908,10 @@ async def handle_rag_scenario(req: Request, upstream_path: str):
     当 RAG_ACC_ENABLED 为 true 时，检测请求是否匹配 RAG / Dify 场景，
     若匹配则走 Map-Reduce 加速路径，否则回退到普通流式转发。
     """
+    if not _ensure_rag_imports():
+        jlog("rag module not available (fastchat not installed), falling back")
+        return await _forward_stream(req, upstream_path)
+
     from fastchat.protocol.openai_api_protocol import ChatCompletionRequest
 
     body = await req.body()
