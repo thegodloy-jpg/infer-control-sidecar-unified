@@ -29,9 +29,9 @@ spec:
         emptyDir:
           medium: Memory
           sizeLimit: 4Gi
-      - name: dev-nvidia0
+      - name: dev-nvidia1
         hostPath:
-          path: /dev/nvidia0
+          path: /dev/nvidia1
           type: CharDevice
       - name: dev-nvidiactl
         hostPath:
@@ -86,7 +86,7 @@ spec:
           cd /shared-volume && bash start_command.sh
         env:
         - name: CUDA_VISIBLE_DEVICES
-          value: "0"
+          value: "1"
         - name: CUDA_DEVICE_ORDER
           value: "PCI_BUS_ID"
         - name: VLLM_HOST_IP
@@ -101,8 +101,8 @@ spec:
         - name: model-volume
           mountPath: /models
           readOnly: true
-        - name: dev-nvidia0
-          mountPath: /dev/nvidia0
+        - name: dev-nvidia1
+          mountPath: /dev/nvidia1
         - name: dev-nvidiactl
           mountPath: /dev/nvidiactl
         - name: dev-nvidia-uvm

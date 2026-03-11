@@ -368,18 +368,18 @@ def log_kvcache_offload_config(lmcache_offload_enabled, qat_enabled):
     if not lmcache_offload_enabled:
         return
 
-    logging.info(f"[KVCache Offload] KVCache Offload feature is enabled: {lmcache_offload_enabled}")
-    logging.info(f"[KVCache Offload] Local memory is enabled: {os.getenv('LMCACHE_LOCAL_CPU', 'Not set')}")
-    logging.info(f"[KVCache Offload] Local memory max size: {os.getenv('LMCACHE_MAX_LOCAL_CPU_SIZE', 'Not set')}")
-    logging.info(f"[KVCache Offload] Local disk path: {os.getenv('LMCACHE_LOCAL_DISK', 'Not set')}")
-    logging.info(f"[KVCache Offload] Local disk max size: {os.getenv('LMCACHE_MAX_LOCAL_DISK_SIZE', 'Not set')}")
+    logger.info(f"[KVCache Offload] KVCache Offload feature is enabled: {lmcache_offload_enabled}")
+    logger.info(f"[KVCache Offload] Local memory is enabled: {os.getenv('LMCACHE_LOCAL_CPU', 'Not set')}")
+    logger.info(f"[KVCache Offload] Local memory max size: {os.getenv('LMCACHE_MAX_LOCAL_CPU_SIZE', 'Not set')}")
+    logger.info(f"[KVCache Offload] Local disk path: {os.getenv('LMCACHE_LOCAL_DISK', 'Not set')}")
+    logger.info(f"[KVCache Offload] Local disk max size: {os.getenv('LMCACHE_MAX_LOCAL_DISK_SIZE', 'Not set')}")
 
-    logging.info(f"[KVCache Offload] QAT Compression feature is enabled: {qat_enabled}")
+    logger.info(f"[KVCache Offload] QAT Compression feature is enabled: {qat_enabled}")
     if not qat_enabled:
         return
 
-    logging.info(f"[KVCache Offload] QAT Loss Level: {os.getenv('LMCACHE_QAT_LOSS_LEVEL', 'Not set')}")
-    logging.info(f"[KVCache Offload] QAT Instance Number: {os.getenv('LMCACHE_QAT_INSTANCE_NUM', 'Not set')}")
+    logger.info(f"[KVCache Offload] QAT Loss Level: {os.getenv('LMCACHE_QAT_LOSS_LEVEL', 'Not set')}")
+    logger.info(f"[KVCache Offload] QAT Instance Number: {os.getenv('LMCACHE_QAT_INSTANCE_NUM', 'Not set')}")
 
 
 def check_env():

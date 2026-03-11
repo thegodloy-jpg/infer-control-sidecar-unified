@@ -148,7 +148,7 @@ spec:
       containers:
         # ---- Sidecar: wings-infer ----
         - name: wings-infer
-          image: wings-infer:zhanghui-ascend-st-unified     # CUSTOMIZE
+          image: wings-infer:wings-control-v3               # NEW: wings-control version with set_env.sh fix
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "-c"]
           args:
@@ -244,12 +244,17 @@ spec:
               # NPU 3 和 4 空闲, 映射: ordinal 0 → NPU 3, ordinal 1 → NPU 4
               NPU_ID=$((ORDINAL + 3))
               export ASCEND_VISIBLE_DEVICES=$NPU_ID
-              echo "[engine] POD_NAME=$POD_NAME ordinal=$ORDINAL NPU=$ASCEND_VISIBLE_DEVICES POD_IP=$POD_IP"
+              export ASCEND_RT_VISIBLE_DEVICES=$NPU_ID
+              # 确保 CANN 环境已加载
+              source /usr/local/Ascend/ascend-toolkit/set_env.sh 2>/dev/null || true
+              echo "[engine] POD_NAME=$POD_NAME ordinal=$ORDINAL NPU=$NPU_ID POD_IP=$POD_IP"
+              echo "[engine] HCCL/ASCEND env:"
+              env | grep -E 'HCCL|ASCEND|GLOO|VLLM_HOST|POD_IP' | sort
               echo "[engine] Waiting for start_command.sh..."
               while [ ! -f /shared-volume/start_command.sh ]; do sleep 2; done
-              echo "[engine] Executing:"
+              echo "[engine] === start_command.sh content ==="
               cat /shared-volume/start_command.sh
-              echo "---"
+              echo "[engine] === executing ==="
               cd /shared-volume && bash start_command.sh
           env:
             - name: POD_NAME
@@ -264,6 +269,19 @@ spec:
             - name: HCCL_WHITELIST_DISABLE
               value: "1"
             - name: HCCL_SOCKET_IFNAME
+              value: "eth0"
+            # HCCL 调试：打印详细日志帮助排查跨 Pod 通信问题
+            - name: HCCL_LOG_LEVEL
+              value: "DEBUG"
+            - name: HCCL_CONNECT_TIMEOUT
+              value: "600"
+            # CANN 全局日志级别 (0=DEBUG 1=INFO)
+            - name: ASCEND_GLOBAL_LOG_LEVEL
+              value: "1"
+            - name: ASCEND_SLOG_PRINT_TO_STDOUT
+              value: "1"
+            # Gloo 通信后端: Ray TP Worker 用这个做 CPU 侧协调
+            - name: GLOO_SOCKET_IFNAME
               value: "eth0"
           volumeMounts:
             - name: shared-volume

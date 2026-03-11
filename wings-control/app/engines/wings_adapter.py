@@ -47,8 +47,18 @@ root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 # ──────────────── Shell 安全 ────────────────
 
 def _sanitize_shell_path(path: str) -> str:
-    """从文件路径中移除 shell 元字符，防止命令注入攻击。"""
-    return re.sub(r"[^a-zA-Z0-9/_.-]", "", path)
+    """从文件路径中移除 shell 元字符，防止命令注入攻击。
+
+    使用 shlex.quote() 进行标准 POSIX shell 转义，
+    相比简单的正则过滤更安全且不会破坏包含空格的合法路径。
+
+    Args:
+        path: 原始文件路径字符串
+
+    Returns:
+        str: 经过 shell 安全转义的路径
+    """
+    return shlex.quote(path)
 
 
 # ──────────────── 判定函数 ────────────────
@@ -186,11 +196,13 @@ def _setup_multicard_env_lines(svc_device: Optional[str], device_count: int) -> 
 def _build_text2video_single_cmd(params: Dict[str, Any]) -> str:
     """构建 HunyuanVideo 单卡启动命令。"""
     engine_config = params.get("engine_config", {}) or {}
+    model_path = engine_config.get("model_path") or engine_config.get("model_base")
+    if not model_path:
+        raise ValueError("[Wings] model_path or model_base is required for HunyuanVideo single-card command")
     parts = ["python", "-m", "wings.servers.model.hunyuanvideo_server"]
 
     _append_kv(parts, "--server-host", params.get("host"))
     _append_kv(parts, "--server-port", params.get("port"))
-    model_path = engine_config.get("model_path") or engine_config.get("model_base")
     _append_kv(parts, "--model-base", model_path)
     _append_kv(parts, "--dit-weight", engine_config.get("dit_weight"))
     _append_kv(parts, "--vae-path", engine_config.get("vae_path"))

@@ -502,7 +502,7 @@ def check_pcie_cards(device_id="d802", subsystem_id="4000"):
             logger.error("lspci command is not available")
             return False, 0, []
         else:
-            logger.error(f"Command execution failed: {error_msg}")
+            logger.error("Command execution failed: %s", error_msg)
             return False, 0, []
 
     except FileNotFoundError:
@@ -510,9 +510,9 @@ def check_pcie_cards(device_id="d802", subsystem_id="4000"):
         return False, 0, []
 
     except ValueError as e:
-        logger.error(f"Result parsing failed: {str(e)}")
+        logger.error("Result parsing failed: %s", str(e))
         return False, 0, []
 
     except Exception as e:
-        logger.error(f"Unexpected error occurred: {str(e)}")
+        logger.error("Unexpected error occurred: %s", str(e))
         return False, 0, []

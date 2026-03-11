@@ -42,6 +42,7 @@ import json
 import logging
 import os
 import re
+import shlex
 from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
@@ -54,8 +55,17 @@ XLLM_BINARY = "/usr/local/python3.11.13/lib/python3.11/site-packages/xllm/xllm"
 
 
 def _sanitize_shell_path(path: str) -> str:
-    """从文件路径中移除 shell 元字符。"""
-    return re.sub(r"[^a-zA-Z0-9/_.-]", "", path)
+    """从文件路径中移除 shell 元字符，防止命令注入攻击。
+
+    使用 shlex.quote() 进行标准 POSIX shell 转义。
+
+    Args:
+        path: 原始文件路径字符串
+
+    Returns:
+        str: 经过 shell 安全转义的路径
+    """
+    return shlex.quote(path)
 
 
 def _build_base_env_commands(params: Dict[str, Any], root: str) -> List[str]:

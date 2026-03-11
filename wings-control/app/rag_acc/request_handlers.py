@@ -1,9 +1,13 @@
 import json
-import requests
+from contextlib import asynccontextmanager
+
+import httpx
+
 from app.proxy.proxy_config import logger
 from app.rag_acc.prompt_manager import generate_map_prompt, generate_combine_prompt
 
 REQUEST_TIMEOUT = 600
+_TIMEOUT = httpx.Timeout(REQUEST_TIMEOUT)
 
 
 def _build_request_data(input_data, messages=None, is_for_kvcache_preparation=False):
@@ -32,23 +36,23 @@ def _build_request_data(input_data, messages=None, is_for_kvcache_preparation=Fa
 
 
 def create_simple_request(input_data, extra_headers, backend_url):
-    def simple_request():
+    async def simple_request():
         data = _build_request_data(input_data)
         data_json = json.dumps(data)
-        url = backend_url
-        resp = requests.post(
-            url=url,
-            data=data_json,
-            headers={"Content-type": "application/json", **extra_headers},
-            stream=True,
-            timeout=REQUEST_TIMEOUT,
-        )
-        return resp
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            async with client.stream(
+                "POST", backend_url,
+                content=data_json,
+                headers={"Content-type": "application/json", **extra_headers},
+            ) as resp:
+                async for chunk in resp.aiter_bytes():
+                    yield chunk
     return simple_request
 
 
 def create_chunk_request(input_data, query, chunks, extra_headers, backend_url):
-    def chunk_request(index):
+    @asynccontextmanager
+    async def chunk_request(index):
         chunk = chunks[index]
         messages = [
             {"role": "user", "content": generate_map_prompt(query, chunk)}]
@@ -56,20 +60,19 @@ def create_chunk_request(input_data, query, chunks, extra_headers, backend_url):
         data = _build_request_data(input_data, messages, is_for_kvcache_preparation)
         data_json = json.dumps(data)
         logger.debug(f"chunk inputs: {data}")
-        url = backend_url
-        resp = requests.post(
-            url=url,
-            data=data_json,
-            headers={"Content-type": "application/json", **extra_headers},
-            stream=True,
-            timeout=REQUEST_TIMEOUT,
-        )
-        return resp
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            async with client.stream(
+                "POST", backend_url,
+                content=data_json,
+                headers={"Content-type": "application/json", **extra_headers},
+            ) as resp:
+                yield resp
     return chunk_request
 
 
 def create_combine_request(input_data, query, chunks, extra_headers, backend_url):
-    def combine_request(preliminary_analysis):
+    @asynccontextmanager
+    async def combine_request(preliminary_analysis):
         if preliminary_analysis.endswith("<|preparation|>"):
             half_chunks = chunks[:len(chunks)//2]
             messages = [
@@ -81,13 +84,11 @@ def create_combine_request(input_data, query, chunks, extra_headers, backend_url
         data = _build_request_data(input_data, messages, is_for_kvcache_preparation)
         data_json = json.dumps(data)
         logger.debug(f"combine_request: inputs: {data}")
-        url = backend_url
-        resp = requests.post(
-            url=url,
-            data=data_json,
-            headers={"Content-type": "application/json", **extra_headers},
-            stream=True,
-            timeout=REQUEST_TIMEOUT,
-        )
-        return resp
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            async with client.stream(
+                "POST", backend_url,
+                content=data_json,
+                headers={"Content-type": "application/json", **extra_headers},
+            ) as resp:
+                yield resp
     return combine_request

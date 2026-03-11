@@ -114,8 +114,19 @@ def _build_base_env_commands(params, engine: str, root: str) -> List[str]:
         if os.path.exists(local_script):
             env_commands.append(f"source {local_script}")
         else:
-            env_commands.append("source /usr/local/Ascend/ascend-toolkit/set_env.sh")
-            env_commands.append("source /usr/local/Ascend/nnal/atb/set_env.sh")
+            # set +u: Ascend env scripts reference unbound vars (CMAKE_PREFIX_PATH, ZSH_VERSION)
+            env_commands.append("set +u")
+            env_commands.append(
+                "[ -f /usr/local/Ascend/ascend-toolkit/set_env.sh ] "
+                "&& source /usr/local/Ascend/ascend-toolkit/set_env.sh "
+                "|| echo 'WARN: ascend-toolkit/set_env.sh not found'"
+            )
+            env_commands.append(
+                "[ -f /usr/local/Ascend/nnal/atb/set_env.sh ] "
+                "&& source /usr/local/Ascend/nnal/atb/set_env.sh "
+                "|| echo 'WARN: nnal/atb/set_env.sh not found'"
+            )
+            env_commands.append("set -u")
         if params.get("engine_config", {}).get("use_kunlun_atb"):
             env_commands.append(f"export USE_KUNLUN_ATB=1")
             logger.info("kunlun atb is used")
@@ -245,8 +256,14 @@ def _build_pd_role_env_commands(engine: str, current_ip: str, network_interface:
         elif engine == "vllm_ascend":
             rpc_port = os.getenv('VLLM_LLMDD_RPC_PORT', "5569")
             env_commands.extend([
-                f"source /usr/local/Ascend/ascend-toolkit/set_env.sh",
-                f"source /usr/local/Ascend/nnal/atb/set_env.sh",
+                "set +u",
+                "[ -f /usr/local/Ascend/ascend-toolkit/set_env.sh ] "
+                "&& source /usr/local/Ascend/ascend-toolkit/set_env.sh "
+                "|| echo 'WARN: ascend-toolkit/set_env.sh not found'",
+                "[ -f /usr/local/Ascend/nnal/atb/set_env.sh ] "
+                "&& source /usr/local/Ascend/nnal/atb/set_env.sh "
+                "|| echo 'WARN: nnal/atb/set_env.sh not found'",
+                "set -u",
                 f"export HCCL_IF_IP={current_ip}",
                 f"export GLOO_SOCKET_IFNAME={network_interface}",
                 f"export TP_SOCKET_IFNAME={network_interface}",

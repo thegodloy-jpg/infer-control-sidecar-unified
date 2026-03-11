@@ -623,5 +623,5 @@ async def _send_warmup_request() -> None:
         if response.status_code == 200:
             # 非流式 POST 响应已完整读取，直接记录结果即可
             C.logger.info("Warmup response received (%d bytes)", len(response.content))
-            await response.aclose()
+        await response.aclose()
 

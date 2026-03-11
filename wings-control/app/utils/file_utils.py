@@ -70,7 +70,7 @@ def safe_write_file(file_path: str,
         bool: 写入成功返回 True，失败返回 False
     """
     try:
-        with os.fdopen(os.open(file_path, flags, modes), 'w') as f:
+        with os.fdopen(os.open(file_path, flags, modes), 'w', encoding='utf-8') as f:
             if is_json:
                 json.dump(content, f, indent=INDENT)
             else:
@@ -143,7 +143,7 @@ def check_torch_dtype(json_file_path):
         IOError: I/O
     """
     try:
-        with open(json_file_path, 'r') as f:
+        with open(json_file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
 
         # torch_dtype

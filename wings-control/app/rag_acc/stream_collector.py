@@ -2,7 +2,6 @@ import asyncio
 import json
 import re
 import time
-import requests
 from fastapi.responses import StreamingResponse
 from app.proxy.proxy_config import logger
 from app.rag_acc.non_blocking_queue import NonBlockingQueue
@@ -53,11 +52,11 @@ class StreamCollector:
         logger.debug(f"q-{index}, collect start")
         queue = self.queues[index]
         done = self.dones[index]
-        resp = self.chunk_request(index)
         try:
-            async for res in self._process_chunk_response(resp, index):
-                await queue.put(res)
-                await asyncio.sleep(0)
+            async with self.chunk_request(index) as resp:
+                async for res in self._process_chunk_response(resp, index):
+                    await queue.put(res)
+                    await asyncio.sleep(0)
             logger.debug(f"q-{index}, done")
             await queue.put(None)
             await done.put(None)
@@ -68,7 +67,7 @@ class StreamCollector:
 
     async def _process_chunk_response(self, resp, index):
         buffer = ""
-        for raw_chunk in resp.iter_content(chunk_size=None):
+        async for raw_chunk in resp.aiter_bytes():
             text = raw_chunk.decode("utf-8")
             lines = (buffer + text).splitlines(True)
             buffer = "" if text.endswith('\n') else lines.pop()
@@ -115,26 +114,27 @@ class StreamCollector:
     async def _combine_results(self, queue):
         logger.debug(f"combine, start")
         await asyncio.sleep(5)
-        resp = self.combine_request("<|preparation|>")
+        async with self.combine_request("<|preparation|>") as _warmup_resp:
+            pass  # KV cache warmup, discard response
         logger.debug(f"waiting for first-level response to complete")
         for index, done in enumerate(self.dones):
             await done.get()
             logger.debug(f"combine, q-{index} is done")
         logger.debug(f"first-level response completed, starting second-level reasoning, first-level response {self.buffers}")
-        resp = self.combine_request("\n\n".join(self.buffers))
-        logger.debug(f"combine, resp {resp}")
-        try:
-            async for res in self._process_combine_response(resp):
-                await queue.put(res)
-                await asyncio.sleep(0)
-            await queue.put(None)
-        except Exception as e:
-            logger.error(f"Error in _combine_results: {e}", exc_info=True)
-            await queue.put(None)
+        async with self.combine_request("\n\n".join(self.buffers)) as resp:
+            logger.debug(f"combine, resp {resp}")
+            try:
+                async for res in self._process_combine_response(resp):
+                    await queue.put(res)
+                    await asyncio.sleep(0)
+                await queue.put(None)
+            except Exception as e:
+                logger.error(f"Error in _combine_results: {e}", exc_info=True)
+                await queue.put(None)
 
     async def _process_combine_response(self, resp):
         buffer = ""
-        for raw_chunk in resp.iter_content(chunk_size=None):
+        async for raw_chunk in resp.aiter_bytes():
             text = raw_chunk.decode("utf-8")
             lines = (buffer + text).splitlines(True)
             buffer = "" if text.endswith('\n') else lines.pop()
@@ -192,15 +192,16 @@ class StreamCollector:
             yield sse_res
 
     async def _initialize_collectors(self):
-        queue = NonBlockingQueue()
-        self.queues.append(queue)
-        start = NonBlockingQueue()
-        self.starts.append(start)
-        logger.debug(f"kick off chunk")
-        await start.put(None)
-        done = NonBlockingQueue()
-        self.dones.append(done)
-        self.buffers.append("")
-        logger.debug(f"create task for chunk")
-        self.collectors.append(asyncio.create_task(
-            self._collect_single_chunk(0)))
+        for i in range(self.chunk_num):
+            queue = NonBlockingQueue()
+            self.queues.append(queue)
+            start = NonBlockingQueue()
+            self.starts.append(start)
+            logger.debug(f"kick off chunk {i}")
+            await start.put(None)
+            done = NonBlockingQueue()
+            self.dones.append(done)
+            self.buffers.append("")
+            logger.debug(f"create task for chunk {i}")
+            self.collectors.append(asyncio.create_task(
+                self._collect_single_chunk(i)))

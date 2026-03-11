@@ -53,19 +53,16 @@ from typing import Dict, Any, List
 def _sanitize_shell_path(path: str) -> str:
     """从文件路径中移除 shell 元字符，防止命令注入攻击。
 
-    安全处理用户输入或环境变量中的路径，仅保留安全字符：
-    - 字母 (a-z, A-Z)
-    - 数字 (0-9)
-    - 路径字符 (/)
-    - 下划线 (_)、点 (.)、横线 (-)
+    使用 shlex.quote() 进行标准 POSIX shell 转义，
+    相比简单的正则过滤更安全且不会破坏包含空格的合法路径。
 
     Args:
         path: 原始文件路径字符串
 
     Returns:
-        str: 清理后的安全路径
+        str: 经过 shell 安全转义的路径
     """
-    return re.sub(r"[^a-zA-Z0-9/_.-]", "", path)
+    return shlex.quote(path)
 
 
 # 日志记录器

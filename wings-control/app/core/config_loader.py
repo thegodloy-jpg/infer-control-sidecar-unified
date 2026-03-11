@@ -249,9 +249,10 @@ def _merge_cmd_params(hardware_env, engine_specific_defaults, cmd_known_params, 
     # 根据引擎类型分发到不同的参数合并函数
     engine = common_context["engine"]
     # 将嵌套 dict 型配置值序列化为 JSON 字符串，便于作为 CLI 参数传递
-    for key, value in engine_specific_defaults.items():
-        if isinstance(value, dict):  # 字典值转为 JSON 字符串
-            engine_specific_defaults[key] = json.dumps(value)
+    engine_specific_defaults = {
+        k: json.dumps(v) if isinstance(v, dict) else v
+        for k, v in engine_specific_defaults.items()
+    }
     if engine in ("vllm", "vllm_ascend"):
         return _merge_vllm_params(engine_specific_defaults, common_context, engine_cmd_parameter, model_info)
     elif engine == "mindie":
@@ -1475,157 +1476,6 @@ def _merge_final_config(engine_config: Dict[str, Any],
 # ==============================  MMGM/Wings  ==============================
 
 
-def _autodiscover_hunyuan_paths(model_path_root: str) -> Dict[str, str]:
-    """
-    HunyuanVideo
-    - dit_weight:   <var>/transformers/mp_rank_00_model_states.pt
-                     mp_rank_00_model_states.pt  pytorch_model_*.pt
-    - vae_path:     <var>/vae 'vae'
-    - text_encoder_path:       <root>/text_encoder 'text_encoder*'
-    - text_encoder_2_path:     <root>/clip-vit-large-patch14 'text_encoder_2'  'clip-vit-large'
-    """
-    base = Path(model_path_root).expanduser().resolve()
-    if not base.exists():
-        raise ValueError(f"[MMGM] model_path not exists: {base}")
-
-    vardir = _find_variant_directory(base)
-
-    return {
-        "dit_weight": _find_dit_weight(base, vardir),
-        "vae_path": _find_vae_path(base, vardir),
-        "text_encoder_path": _find_text_encoder_path(base),
-        "text_encoder_2_path": _find_text_encoder_2_path(base),
-    }
-
-
-def _find_variant_directory(base_path):
-    """查找 HunyuanVideo 变体目录（720p/540p）。
-
-    在模型根目录下查找预设的变体目录，用于后续加载 DIT/VAE 权重。
-
-    Args:
-        base_path: 模型根目录的 Path 对象
-
-    Returns:
-        Path | None: 找到的变体目录或 None
-    """
-    if (base_path / "hunyuan-video-t2v-720p").is_dir():
-        return base_path / "hunyuan-video-t2v-720p"
-    elif (base_path / "hunyuan-video-t2v-540p").is_dir():
-        return base_path / "hunyuan-video-t2v-540p"
-    return None
-
-
-def _find_dit_weight(base_path, variant_dir):
-    """查找 HunyuanVideo DIT 权重文件路径。
-
-    搜索顺序:
-        1. 变体目录下的 transformers/mp_rank_00_model_states.pt
-        2. 递归搜索根目录下的 mp_rank_00_model_states.pt 或 pytorch_model_*.pt
-
-    Args:
-        base_path:   模型根目录
-        variant_dir: 变体目录（可为 None）
-
-    Returns:
-        str: 找到的 DIT 权重文件路径，未找到时返回空字符串
-    """
-
-    #
-    if variant_dir and (variant_dir / "transformers" / "mp_rank_00_model_states.pt").is_file():
-        return str((variant_dir / "transformers" / "mp_rank_00_model_states.pt").resolve())
-
-    #
-    for root, _, files in os.walk(str(base_path)):
-        for fn in files:
-            if fn == "mp_rank_00_model_states.pt" or fn.startswith("pytorch_model_"):
-                return str((Path(root) / fn).resolve())
-    return ""
-
-
-def _find_vae_path(base_path, variant_dir):
-    """查找 HunyuanVideo VAE 目录路径。
-
-    搜索顺序:
-        1. 变体目录下的 vae/ 子目录
-        2. 递归搜索根目录下的 vae/ 目录
-
-    Args:
-        base_path:   模型根目录
-        variant_dir: 变体目录（可为 None）
-
-    Returns:
-        str: 找到的 VAE 目录路径，未找到时返回空字符串
-    """
-
-    #
-    if variant_dir and (variant_dir / "vae").is_dir():
-        return str((variant_dir / "vae").resolve())
-
-    #
-    for root, dirs, _ in os.walk(str(base_path)):
-        if "vae" in dirs:
-            return str((Path(root) / "vae").resolve())
-    return ""
-
-
-def _find_text_encoder_path(base_path):
-    """查找 HunyuanVideo 文本编码器 1 目录路径。
-
-    搜索顺序:
-        1. 根目录下的 text_encoder/ 子目录
-        2. 递归搜索根目录下的 text_encoder* 目录
-
-    Args:
-        base_path: 模型根目录
-
-    Returns:
-        str: 找到的文本编码器目录路径，未找到时返回空字符串
-    """
-
-    #
-    if (base_path / "text_encoder").is_dir():
-        return str((base_path / "text_encoder").resolve())
-
-    #
-    for root, dirs, _ in os.walk(str(base_path)):
-        for d in dirs:
-            if d.startswith("text_encoder"):
-                return str((Path(root) / d).resolve())
-    return ""
-
-
-def _find_text_encoder_2_path(base_path):
-    """查找 HunyuanVideo 文本编码器 2 (CLIP-ViT-Large) 目录路径。
-
-    搜索顺序:
-        1. 根目录下的 clip-vit-large-patch14/ 子目录
-        2. 根目录下的 text_encoder_2/ 子目录
-        3. 递归搜索根目录下的 text_encoder_2 或 clip-vit-large 目录
-
-    Args:
-        base_path: 模型根目录
-
-    Returns:
-        str: 找到的文本编码器 2 目录路径，未找到时返回空字符串
-    """
-
-    #
-    if (base_path / "clip-vit-large-patch14").is_dir():
-        return str((base_path / "clip-vit-large-patch14").resolve())
-
-    #
-    if (base_path / "text_encoder_2").is_dir():
-        return str((base_path / "text_encoder_2").resolve())
-
-    #
-    for root, dirs, _ in os.walk(str(base_path)):
-        for d in dirs:
-            if d == "text_encoder_2" or "clip-vit-large" in d:
-                return str((Path(root) / d).resolve())
-    return ""
-
-
 def _build_mmgm_engine_defaults(cmd_known_params: Dict[str, Any],
                                 hardware_env: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -1644,7 +1494,7 @@ def _build_mmgm_engine_defaults(cmd_known_params: Dict[str, Any],
         raise ValueError("[MMGM] model_path (or HYV_MODEL_PATH) is required for mmgm+wings.")
 
     #
-    discovered = _autodiscover_hunyuan_paths(model_path)
+    discovered = autodiscover_hunyuan_paths(model_path)
 
     #  shell
     dit_weight = discovered["dit_weight"]
