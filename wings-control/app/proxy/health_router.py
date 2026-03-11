@@ -47,7 +47,7 @@ from dataclasses import dataclass
 import httpx
 
 
-from app.proxy import settings as C
+from app.proxy import proxy_config as C
 from app.proxy.tags import build_backend_url
 
 

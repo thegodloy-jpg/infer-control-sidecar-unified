@@ -30,7 +30,7 @@ http_client.py - 异步 HTTP 客户端工厂。
 
 from __future__ import annotations
 import httpx
-from . import settings as C
+from . import proxy_config as C
 
 
 async def create_async_client() -> httpx.AsyncClient:

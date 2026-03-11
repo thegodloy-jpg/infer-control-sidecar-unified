@@ -401,7 +401,7 @@ def _load_distributed_config() -> dict:
     import json
     from pathlib import Path
 
-    config_path = Path(__file__).parent / "config" / "distributed_config.json"
+    config_path = Path(__file__).parent / "config" / "defaults" / "distributed_config.json"
     with open(config_path) as f:
         return json.load(f)
 

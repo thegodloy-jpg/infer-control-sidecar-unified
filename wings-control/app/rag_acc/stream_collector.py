@@ -4,8 +4,8 @@ import re
 import time
 import requests
 from fastapi.responses import StreamingResponse
-from app.proxy.settings import logger
-from app.proxy.rag_acc.non_blocking_queue import NonBlockingQueue
+from app.proxy.proxy_config import logger
+from app.rag_acc.non_blocking_queue import NonBlockingQueue
 
 
 class StreamCollector:

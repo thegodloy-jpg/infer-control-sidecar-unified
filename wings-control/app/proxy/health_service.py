@@ -30,8 +30,8 @@ import uvicorn
 from fastapi import FastAPI, Response
 from fastapi.responses import JSONResponse
 
-from app.proxy import settings as C
-from app.proxy.health import (
+from app.proxy import proxy_config as C
+from app.proxy.health_router import (
     _jittered_sleep_base,
     build_health_body,
     build_health_headers,

@@ -51,7 +51,7 @@ def _resolve_default_config_dir() -> str:
     env_dir = os.getenv("WINGS_CONFIG_DIR", "").strip()
     if env_dir:
         return env_dir
-    bundled_dir = Path(__file__).resolve().parents[1] / "config"
+    bundled_dir = Path(__file__).resolve().parents[1] / "config" / "defaults"
     if bundled_dir.exists():
         return str(bundled_dir)
     return "wings/config"

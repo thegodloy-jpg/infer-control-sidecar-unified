@@ -38,7 +38,7 @@ import json
 from fastapi import HTTPException, Request
 import orjson
 
-from . import settings as C
+from . import proxy_config as C
 
 
 def want_topk(name: str, default: str = "1") -> bool:

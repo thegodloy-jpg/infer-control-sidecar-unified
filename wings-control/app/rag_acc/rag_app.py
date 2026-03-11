@@ -1,12 +1,12 @@
 from fastapi import Request
 from fastapi.responses import StreamingResponse
 from fastchat.protocol.openai_api_protocol import ChatCompletionRequest
-from app.proxy.settings import logger
+from app.proxy.proxy_config import logger
 
-from app.proxy.rag_acc.stream_collector import StreamCollector
-from app.proxy.rag_acc.request_handlers import create_simple_request, create_chunk_request, create_combine_request
-from app.proxy.rag_acc.document_processor import parse_document_chunks
-from app.proxy.rag_acc.extract_dify_info import is_dify_scenario, extract_dify_info
+from app.rag_acc.stream_collector import StreamCollector
+from app.rag_acc.request_handlers import create_simple_request, create_chunk_request, create_combine_request
+from app.rag_acc.document_processor import parse_document_chunks
+from app.rag_acc.extract_dify_info import is_dify_scenario, extract_dify_info
 
 
 MIN_CONTENT_LENGTH = 2048

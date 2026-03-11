@@ -1,7 +1,7 @@
 import json
 import requests
-from app.proxy.settings import logger
-from app.proxy.rag_acc.prompt_manager import generate_map_prompt, generate_combine_prompt
+from app.proxy.proxy_config import logger
+from app.rag_acc.prompt_manager import generate_map_prompt, generate_combine_prompt
 
 REQUEST_TIMEOUT = 600
 

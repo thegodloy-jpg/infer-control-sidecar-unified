@@ -53,7 +53,7 @@ import asyncio
 import json
 from typing import Dict, Optional
 from fastapi import HTTPException
-from . import settings as C
+from . import proxy_config as C
 
 
 # =============================================================================

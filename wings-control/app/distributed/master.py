@@ -300,7 +300,7 @@ def start_master():
 
     import uvicorn
 
-    config_path = Path(__file__).parent.parent / "config" / "distributed_config.json"
+    config_path = Path(__file__).parent.parent / "config" / "defaults" / "distributed_config.json"
     with open(config_path) as f:
         cfg = json.load(f)
 

@@ -51,7 +51,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
-from . import settings as C
+from . import proxy_config as C
 from .http_client import create_async_client
 from .queueing import QueueGate
 from .tags import (
@@ -75,8 +75,8 @@ from .health import (
 )
 
 # RAG 加速 — 从 v2 迁移
-from app.proxy.rag_acc.rag_app import is_rag_scenario, rag_acc_chat
-from app.proxy.rag_acc.extract_dify_info import is_dify_scenario, extract_dify_info
+from app.rag_acc.rag_app import is_rag_scenario, rag_acc_chat
+from app.rag_acc.extract_dify_info import is_dify_scenario, extract_dify_info
 
 configure_worker_logging()
 

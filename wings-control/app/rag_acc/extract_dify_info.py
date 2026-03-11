@@ -1,6 +1,6 @@
 import re
 from fastchat.protocol.openai_api_protocol import ChatCompletionRequest
-from app.proxy.settings import logger
+from app.proxy.proxy_config import logger
 
 
 def is_dify_scenario(chat_input: ChatCompletionRequest) -> bool:

@@ -100,7 +100,7 @@ class WorkerConfig:
 
     def _load_config(self, master_ip: str | None = None):
         config_path = (
-            Path(__file__).parent.parent / "config" / "distributed_config.json"
+            Path(__file__).parent.parent / "config" / "defaults" / "distributed_config.json"
         )
         with open(config_path) as f:
             _config = json.load(f)
