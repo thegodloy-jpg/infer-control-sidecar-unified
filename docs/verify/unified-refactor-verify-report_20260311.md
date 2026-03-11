@@ -4,13 +4,13 @@
 **验证人**: zhanghui  
 **仓库**: https://github.com/thegodloy-jpg/infer-control-sidecar-unified  
 **分支**: main  
-**最新提交**: `355dfc1`
+**最新提交**: `d45ea4f`
 
 ---
 
 ## 1. 重构概述
 
-本次对 `infer-control-sidecar-unified` 项目进行了全面的目录结构优化和代码重构，共产生 **8 个 Git 提交**，涵盖文档整合、后端代码结构优化、脚本重定位以及运行时 bug 修复。
+本次对 `infer-control-sidecar-unified` 项目进行了全面的目录结构优化和代码重构，共产生 **9 个 Git 提交**，涵盖文档整合、后端代码结构优化、脚本重定位、运行时 bug 修复以及深度代码审计修复。
 
 ### 1.1 提交历史
 
@@ -24,6 +24,7 @@
 | `513143f` | chore | 新增 150 节点 StatefulSet YAML |
 | `5e5e2cd` | fix | 修复 gateway.py 中 health → health_router 的 import 引用 |
 | `355dfc1` | fix | 修复 rag_acc/fastchat 缺失依赖导致的启动崩溃（改为懒加载） |
+| `d45ea4f` | fix | 深度代码审计修复（14 项，涵盖 Critical/High/Medium/Low） |
 
 ---
 
@@ -428,7 +429,62 @@ TOTAL: 17 | PASSED: 17 | FAILED: 0
 
 ---
 
-## 8. 重构收益
+## 8. 深度代码审计修复 (commit `d45ea4f`)
+
+对全部 30+ Python 源文件进行深度审计，发现 20 项问题，修复 14 项（跳过 #6, #7, #13, #17, #19）。
+
+### 8.1 修复清单
+
+| # | 等级 | 文件 | 问题描述 | 修复方式 |
+|---|------|------|----------|----------|
+| 1 | **Critical** | `rag_acc/stream_collector.py` | `_initialize_collectors()` 硬编码单个 collector，多 chunk 场景只有 1 个队列 | 改为 `for i in range(self.chunk_num)` 循环 |
+| 2 | **Critical** | `rag_acc/request_handlers.py` | 3× 同步 `requests.post()` 阻塞事件循环 | 改用 `httpx.AsyncClient` + `asynccontextmanager` |
+| 3 | **Critical** | `rag_acc/stream_collector.py` | `resp.iter_content()` 同步迭代 | 改为 `async for chunk in resp.aiter_bytes()` |
+| 4 | **High** | `core/config_loader.py` | `_merge_cmd_params()` 原地变异 `engine_specific_defaults` | 字典推导创建新 dict |
+| 5 | Medium | `proxy/__init__.py` | `__all__` 包含已删除的 `"settings"`，缺少 `"health_router"` 等 | 完整更新 `__all__` 和模块注释 |
+| 8 | **High** | `sglang/wings/xllm_adapter.py` | `_sanitize_shell_path()` 正则仅白名单过滤，路径含空格时静默截断 | 改为标准 `shlex.quote()` |
+| 9 | **High** | `rag_acc/non_blocking_queue.py` | `get()` 使用 `asyncio.sleep(0.01)` 忙等待 | 改为 `asyncio.Event` 驱动唤醒 |
+| 10 | Medium | `utils/model_utils.py` | 8 处 f-string 续行缺少 `f` 前缀，`{architectures}` 等变量未插值 | 续行补加 `f` 前缀 |
+| 11 | Low | `utils/device_utils.py` | 3× `logger.error(f"...{e}")` 异常时先求值再传参 | 改为 `logger.error("...%s", e)` |
+| 12 | Medium | `utils/env_utils.py` | 8× `logging.info()` 绕过模块级 logger | 改为 `logger.info()` |
+| 14 | Medium | `core/config_loader.py` | Hunyuan 路径发现函数与 `mmgm_utils.py` 完全重复 (~150 行) | 删除重复代码，复用已导入的 `autodiscover_hunyuan_paths` |
+| 15 | Low | `utils/__init__.py` | 注释引用已删除的 `http_client.py`、`wings_file_utils.py` | 更新为当前实际模块列表 |
+| 16 | Medium | `proxy/health_router.py` | warmup POST 响应非 200 时不调用 `aclose()` 导致连接泄漏 | 将 `aclose()` 移到条件外部，始终关闭 |
+| 18 | Low | `utils/file_utils.py` | `open(path, 'r')` 和 `os.fdopen()` 缺少 `encoding='utf-8'` | 添加显式编码参数 |
+| 20 | Medium | `engines/wings_adapter.py` | `_build_text2video_single_cmd()` 缺少 `model_path` 必填校验 | 添加 ValueError 防御 |
+
+### 8.2 未修复项说明
+
+| # | 原因 |
+|---|------|
+| 6 | gateway 双重 body 读取 — FastAPI 缓存 body，`rebuild_request_json` 后二次读取是正确行为 |
+| 7 | Gateway Gate acquire/release — 经用户确认保持现有设计不变 |
+| 13 | 低优先级风格问题，修复风险大于收益 |
+| 17 | 同上 |
+| 19 | 同上 |
+
+### 8.3 修改文件清单
+
+```
+wings-control/app/core/config_loader.py          # Fix #4, #14
+wings-control/app/engines/sglang_adapter.py       # Fix #8
+wings-control/app/engines/wings_adapter.py        # Fix #8, #20
+wings-control/app/engines/xllm_adapter.py         # Fix #8
+wings-control/app/proxy/__init__.py               # Fix #5
+wings-control/app/proxy/health_router.py          # Fix #16
+wings-control/app/rag_acc/non_blocking_queue.py   # Fix #9
+wings-control/app/rag_acc/request_handlers.py     # Fix #2
+wings-control/app/rag_acc/stream_collector.py     # Fix #1, #3
+wings-control/app/utils/__init__.py               # Fix #15
+wings-control/app/utils/device_utils.py           # Fix #11
+wings-control/app/utils/env_utils.py              # Fix #12
+wings-control/app/utils/file_utils.py             # Fix #18
+wings-control/app/utils/model_utils.py            # Fix #10
+```
+
+---
+
+## 9. 重构收益
 
 1. **文档可发现性**: 3 个分散目录 → 1 个结构化 `docs/` 目录（deploy/ + verify/）
 2. **代码可读性**: `health.py` → `health_router.py`，`settings.py` → `proxy_config.py` 消除歧义
@@ -436,3 +492,7 @@ TOTAL: 17 | PASSED: 17 | FAILED: 0
 4. **配置分层**: `config/defaults/` 明确分离默认值与配置逻辑
 5. **构建自包含**: Dockerfile、启动脚本与代码同在 `wings-control/`，构建上下文清晰
 6. **可选依赖安全**: 懒加载模式确保缺少 RAG 依赖时不影响核心推理功能
+7. **异步安全**: RAG 加速模块全链路改为 async httpx，消除事件循环阻塞风险
+8. **安全加固**: 路径转义统一使用 `shlex.quote()`，消除命令注入隐患
+9. **代码去重**: 删除 config_loader 中 ~150 行 Hunyuan 重复代码，复用 mmgm_utils
+10. **资源管理**: NonBlockingQueue 改为事件驱动、warmup 响应始终关闭连接
