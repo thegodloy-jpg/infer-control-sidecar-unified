@@ -4,7 +4,7 @@
 #
 # 本包提供跨模块共享的基础工具函数，被 launcher、proxy、health 等子系统广泛使用：
 #
-#   - device_utils.py      —— 设备探测（CUDA/NPU 可用性检查、显存查询、设备信息获取）
+#   - device_utils.py      —— ⚠️ 遗留代码：SDK 级设备探测（未被调用，实际检测由 core/hardware_detect.py 完成）
 #   - env_utils.py         —— 环境变量解析（IP 获取、端口读取、特性开关检查）
 #   - file_utils.py        —— 安全文件 I/O（原子写入、权限检查、JSON 配置加载）
 #   - model_utils.py       —— 模型元数据解析（架构识别、类型分类、量化方式检测）

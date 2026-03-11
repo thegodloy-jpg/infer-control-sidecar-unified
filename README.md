@@ -85,7 +85,9 @@ infer-control-sidecar-unified/
 │       ├── distributed/              # 分布式 (master · worker · monitor · scheduler)
 │       ├── proxy/                    # 代理 (gateway · health_router · queueing)
 │       ├── rag_acc/                  # RAG 加速 (rag_app · document_processor · templates)
-│       └── utils/                    # 工具 (env · file · device · model · noise_filter)
+│       └── utils/                    # 工具 (env · file · model · mmgm · noise_filter)
+│                                     # ⚠️ device_utils.py 为遗留代码，未被调用
+│                                     #    实际硬件检测由 core/hardware_detect.py 通过环境变量完成
 ├── wings-accel/                      # 加速包 (可选 initContainer)
 │   └── build-accel-image.sh          # Accel 镜像构建脚本
 ├── k8s/{base,overlays/}              # Kustomize (8 个部署 overlay)
