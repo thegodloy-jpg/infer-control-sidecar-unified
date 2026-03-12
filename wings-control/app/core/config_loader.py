@@ -257,7 +257,7 @@ def _merge_cmd_params(hardware_env, engine_specific_defaults, cmd_known_params, 
     if engine in ("vllm", "vllm_ascend"):
         return _merge_vllm_params(engine_specific_defaults, common_context, engine_cmd_parameter, model_info)
     elif engine == "mindie":
-        return _merge_mindie_params(engine_specific_defaults, common_context, engine_cmd_parameter)
+        return _merge_mindie_params(engine_specific_defaults, common_context, engine_cmd_parameter, model_info)
     elif engine == "sglang":
         return _merge_sglang_params(engine_specific_defaults, common_context, engine_cmd_parameter)
     elif engine == "xllm":
@@ -699,14 +699,15 @@ def _set_router_config(params):
     logger.info("Wings Router for vllm is enabled")
 
 
-def _merge_mindie_params(params, ctx, engine_cmd_parameter):
+def _merge_mindie_params(params, ctx, engine_cmd_parameter, model_info=None):
     """将通用参数合并为 MindIE config.json 所要求的字段格式。
 
     - 通过 mindie 参数映射表翻译 CLI 参数名；
     - 自动检测模型目录中是否含 mtp.safetensors（MTP 特性）；
     - 自动识别 MOE 模型（如 DeepSeek-R1-671B）；
     - 计算 maxSeqLen / maxPrefillTokens；
-    - 分布式场景下设置 worldSize / npuDeviceIds，并禁用 multiNodesInferEnabled。
+    - 分布式场景下设置 worldSize / npuDeviceIds，并禁用 multiNodesInferEnabled；
+    - US8: DeepSeek 满血模型 2×8 分布式长上下文时注入 dp/sp/cp/tp 策略。
     """
     #
     engine_param_map_config_path = os.path.join(DEFAULT_CONFIG_DIR,
@@ -744,6 +745,24 @@ def _merge_mindie_params(params, ctx, engine_cmd_parameter):
             'maxSeqLen': engine_cmd_parameter["input_length"] + engine_cmd_parameter["output_length"],
             'maxPrefillTokens': max(8192, engine_cmd_parameter["input_length"])
         })
+
+    # ── US8: DeepSeek 满血模型 2×8 分布式长上下文 dp/sp/cp/tp 策略 ─────────
+    _LONG_CTX_THRESHOLD = int(os.getenv("MINDIE_LONG_CONTEXT_THRESHOLD", "8192"))
+    model_architecture = getattr(model_info, "model_architecture", None) if model_info else None
+    total_seq_len = (engine_cmd_parameter.get("input_length") or 0) + (engine_cmd_parameter.get("output_length") or 0)
+    if (ctx.get('distributed')
+            and model_architecture in ["DeepseekV3ForCausalLM", "DeepseekV32ForCausalLM"]
+            and total_seq_len > _LONG_CTX_THRESHOLD):
+        params['dp'] = int(os.getenv("MINDIE_DS_DP", "1"))
+        params['sp'] = int(os.getenv("MINDIE_DS_SP", "8"))
+        params['cp'] = int(os.getenv("MINDIE_DS_CP", "2"))
+        params['tp'] = int(os.getenv("MINDIE_DS_TP", "2"))
+        logger.info(
+            "[US8] DeepSeek long-context enabled (seq=%d > %d): "
+            "dp=%d, sp=%d, cp=%d, tp=%d",
+            total_seq_len, _LONG_CTX_THRESHOLD,
+            params['dp'], params['sp'], params['cp'], params['tp'],
+        )
 
     # ── distributed / single-node worldSize + npuDeviceIds ──────────────────
     if ctx.get('distributed'):

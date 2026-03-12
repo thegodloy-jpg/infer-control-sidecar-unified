@@ -527,6 +527,17 @@ def build_start_script(params: Dict[str, Any]) -> str:
             "moe_tp": engine_config.get("moe_tp", world_size),
             "moe_ep": engine_config.get("moe_ep", -1),
         })
+    # US8: DeepSeek 满血模型分布式长上下文策略 (dp/sp/cp/tp)
+    # 由 config_loader._merge_mindie_params() 检测并注入
+    if engine_config.get("sp") is not None:
+        model_config_overrides["sp"] = engine_config["sp"]
+    if engine_config.get("cp") is not None:
+        model_config_overrides["cp"] = engine_config["cp"]
+    # dp/tp: 如果是 US8 长上下文策略，覆盖 MOE 默认值
+    if engine_config.get("dp") is not None and not engine_config.get("isMOE", False):
+        model_config_overrides["dp"] = engine_config["dp"]
+    if engine_config.get("tp") is not None and not engine_config.get("isMOE", False):
+        model_config_overrides["tp"] = engine_config["tp"]
     if engine_config.get("isMTP", False):
         model_config_overrides["plugin_params"] = {
             "plugin_type": "mtp",
