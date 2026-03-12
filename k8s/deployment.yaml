@@ -29,7 +29,7 @@ spec:
 
       # ---- 初始化容器：拷贝 accel 文件 ----
       initContainers:
-        - name: accel-init
+        - name: wings-accel
           image: wings-accel:latest
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "-c"]
@@ -143,7 +143,9 @@ spec:
               if [ "$ENABLE_ACCEL" = "true" ]; then
                 echo "Accel is enabled, installing accel packages..."
                 cd /accel-volume
-                bash install.sh
+                #1.安装
+                python install.py   --accel1 --accel2
+                
                 echo "Accel packages installed successfully"
               else
                 echo "Accel is disabled, skipping installation"
@@ -169,6 +171,8 @@ spec:
               echo "Engine exited with code $EXIT_CODE"
               exit $EXIT_CODE
           env:
+            - name: ENABLE_ACCEL
+              value: "true"
             - name: ENABLE_ACCEL
               value: "true"
           volumeMounts:
