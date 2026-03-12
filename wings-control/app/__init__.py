@@ -1,9 +1,9 @@
 # -----------------------------------------------------------------------------
 # 文件: __init__.py
-# 用途: wings-infer 统一推理 sidecar 后端应用的顶层包标记文件。
+# 用途: wings-control 统一推理 sidecar 后端应用的顶层包标记文件。
 #
 # 项目架构概述:
-#   wings-infer 是一个运行在 Kubernetes 中的 sidecar 容器，负责协调推理引擎的
+#   wings-control 是一个运行在 Kubernetes 中的 sidecar 容器，负责协调推理引擎的
 #   启动配置、API 代理转发和健康状态监控。整体分为三大子系统：
 #
 #   1. launcher (main.py)  —— 解析参数、生成引擎启动脚本、托管 proxy/health 子进程
@@ -18,7 +18,7 @@
 #   - 避免在 __init__.py 中引入重型依赖，确保导入速度快
 # -----------------------------------------------------------------------------
 """
-wings-infer 统一推理 sidecar 后端应用顶层包。
+wings-control 统一推理 sidecar 后端应用顶层包。
 
 本包是 Kubernetes sidecar 推理控制平台的后端应用根包，
 包含 launcher、proxy、health 三大子系统以及共享的 config/core/engines/utils 模块。

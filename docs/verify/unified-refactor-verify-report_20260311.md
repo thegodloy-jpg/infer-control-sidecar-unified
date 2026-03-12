@@ -192,7 +192,7 @@ def _ensure_rag_imports():
 | GPU | NVIDIA L20 46GB (GPU 1)，GPU 0 (A100) 被占用 |
 | K8s 集群 | k3s v1.30.6+k3s1 (Docker-in-Docker) |
 | K8s Server 容器 | `k3s-verify-server-zhanghui` (节点 `ca4109381399`) |
-| Sidecar 镜像 | `wings-infer:entrypoint-zhanghui` (Docker ID: `5689debc7c1f`, 448MB) |
+| Sidecar 镜像 | `wings-control:entrypoint-zhanghui` (Docker ID: `5689debc7c1f`, 448MB) |
 | 引擎镜像 | `vllm/vllm-openai:v0.13.0` (18.2 GiB) |
 | 模型 | `DeepSeek-R1-Distill-Qwen-1.5B` (`/mnt/models/`) |
 | 部署文件 | `statefulset-nv-single-148.yaml` |
@@ -203,14 +203,14 @@ def _ensure_rag_imports():
 
 ```bash
 # 在 148 上构建 (利用缓存的 python:3.10-slim 基础镜像)
-docker build -t wings-infer:entrypoint-zhanghui /tmp/wings-control-build/
+docker build -t wings-control:entrypoint-zhanghui /tmp/wings-control-build/
 # 结果: Successfully built 5689debc7c1f (448MB)
 
 # 导入到 k3s containerd
-docker save wings-infer:entrypoint-zhanghui -o /tmp/wings-image.tar
+docker save wings-control:entrypoint-zhanghui -o /tmp/wings-image.tar
 docker cp /tmp/wings-image.tar k3s-verify-server-zhanghui:/tmp/
 docker exec k3s-verify-server-zhanghui ctr -n k8s.io images import /tmp/wings-image.tar
-# 结果: unpacking docker.io/library/wings-infer:entrypoint-zhanghui (sha256:6f1318c46f0b...)...done
+# 结果: unpacking docker.io/library/wings-control:entrypoint-zhanghui (sha256:6f1318c46f0b...)...done
 ```
 
 ### 4.3 Pod 部署
@@ -377,7 +377,7 @@ Proxy 层（`gateway.py`）运行在端口 **18000**，负责：
 
 ```
 ============================================================
-Wings-Infer Proxy Layer Verification
+Wings-Control Proxy Layer Verification
 ============================================================
 Proxy URL: http://127.0.0.1:18000
 Health URL: http://127.0.0.1:19000

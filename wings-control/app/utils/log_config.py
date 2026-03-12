@@ -14,8 +14,8 @@
 #   而在每个容器内部，通过 [%(name)s] 中的 logger 名称区分组件：
 #
 #   kubectl logs --all-containers 输出示例:
-#   [wings-infer] 2026-03-12 10:00:00 [INFO] [wings-launcher] start command written
-#   [wings-infer] 2026-03-12 10:00:01 [INFO] [wings-proxy] Reason-Proxy starting
+#   [wings-control] 2026-03-12 10:00:00 [INFO] [wings-launcher] start command written
+#   [wings-control] 2026-03-12 10:00:01 [INFO] [wings-proxy] Reason-Proxy starting
 #   [engine]      2026-03-12 10:00:02 INFO: vLLM engine started
 #
 # 配置环境变量:
@@ -26,7 +26,7 @@
 """
 统一日志格式配置模块。
 
-提供集中化的日志格式常量和初始化函数，确保 wings-infer 容器内
+提供集中化的日志格式常量和初始化函数，确保 wings-control 容器内
 所有组件（launcher、proxy、health）使用一致的日志格式。
 
 典型用法::

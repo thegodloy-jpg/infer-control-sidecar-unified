@@ -3,10 +3,10 @@
 ## 快速诊断流程
 
 ```
-1. kubectl get pods -n wings-infer -w          # Pod 状态
+1. kubectl get pods -n wings-control -w          # Pod 状态
 2. curl http://<NODE_IP>:19000/health          # 健康检查
-3. kubectl logs <pod> -c wings-infer -n wings-infer   # Sidecar 日志
-4. kubectl logs <pod> -c engine -n wings-infer         # 引擎日志
+3. kubectl logs <pod> -c wings-control -n wings-control   # Sidecar 日志
+4. kubectl logs <pod> -c engine -n wings-control         # 引擎日志
 ```
 
 ---
@@ -19,8 +19,8 @@
 
 **排查**:
 ```bash
-kubectl describe pod <pod> -n wings-infer
-kubectl logs <pod> -c wings-infer --previous -n wings-infer
+kubectl describe pod <pod> -n wings-control
+kubectl logs <pod> -c wings-control --previous -n wings-control
 ```
 
 **常见原因**:
@@ -57,8 +57,8 @@ curl -s http://<NODE_IP>:19000/health | python -m json.tool
 
 ```bash
 # 检查共享卷
-kubectl exec <pod> -c engine -n wings-infer -- ls -la /shared-volume/
-kubectl exec <pod> -c engine -n wings-infer -- cat /shared-volume/start_command.sh
+kubectl exec <pod> -c engine -n wings-control -- ls -la /shared-volume/
+kubectl exec <pod> -c engine -n wings-control -- cat /shared-volume/start_command.sh
 ```
 
 ### 3. 健康检查返回 502 (启动失败)
@@ -70,13 +70,13 @@ kubectl exec <pod> -c engine -n wings-infer -- cat /shared-volume/start_command.
 **排查**:
 ```bash
 # 检查引擎是否启动
-kubectl exec <pod> -c engine -n wings-infer -- ps aux | grep -E 'vllm|sglang|mindie'
+kubectl exec <pod> -c engine -n wings-control -- ps aux | grep -E 'vllm|sglang|mindie'
 
 # 检查引擎端口是否监听
-kubectl exec <pod> -c wings-infer -n wings-infer -- curl -s http://127.0.0.1:17000/health
+kubectl exec <pod> -c wings-control -n wings-control -- curl -s http://127.0.0.1:17000/health
 
 # 查看引擎日志
-kubectl logs <pod> -c engine -n wings-infer --tail=100
+kubectl logs <pod> -c engine -n wings-control --tail=100
 ```
 
 **常见原因**:
@@ -95,10 +95,10 @@ kubectl logs <pod> -c engine -n wings-infer --tail=100
 **排查**:
 ```bash
 # PID 检查
-kubectl exec <pod> -c wings-infer -n wings-infer -- cat /var/log/wings/wings.txt
+kubectl exec <pod> -c wings-control -n wings-control -- cat /var/log/wings/wings.txt
 
 # 引擎进程是否存活
-kubectl exec <pod> -c engine -n wings-infer -- ps aux
+kubectl exec <pod> -c engine -n wings-control -- ps aux
 ```
 
 ### 5. 代理返回 502/504
@@ -110,11 +110,11 @@ kubectl exec <pod> -c engine -n wings-infer -- ps aux
 **排查**:
 ```bash
 # 直接访问引擎
-kubectl exec <pod> -c wings-infer -n wings-infer -- \
+kubectl exec <pod> -c wings-control -n wings-control -- \
   curl -s http://127.0.0.1:17000/v1/models
 
 # 检查 BACKEND_URL
-kubectl exec <pod> -c wings-infer -n wings-infer -- env | grep BACKEND_URL
+kubectl exec <pod> -c wings-control -n wings-control -- env | grep BACKEND_URL
 ```
 
 **常见错误**:
@@ -128,11 +128,11 @@ kubectl exec <pod> -c wings-infer -n wings-infer -- env | grep BACKEND_URL
 **排查**:
 ```bash
 # 从 worker 节点检查 head 可达性
-kubectl exec <pod>-1 -c engine -n wings-infer -- \
+kubectl exec <pod>-1 -c engine -n wings-control -- \
   python -c "import socket; print(socket.getaddrinfo('<sts>-0.<svc>', 6379))"
 
 # Ray 状态
-kubectl exec <pod>-0 -c engine -n wings-infer -- ray status
+kubectl exec <pod>-0 -c engine -n wings-control -- ray status
 ```
 
 **常见原因**:
@@ -150,11 +150,11 @@ kubectl exec <pod>-0 -c engine -n wings-infer -- ray status
 **排查**:
 ```bash
 # 检查 HCCL 端口
-kubectl exec <pod> -c engine -n wings-infer -- \
+kubectl exec <pod> -c engine -n wings-control -- \
   ss -tlnp | grep 27070
 
 # 检查 ranktable.json
-kubectl exec <pod> -c engine -n wings-infer -- \
+kubectl exec <pod> -c engine -n wings-control -- \
   cat /shared-volume/ranktable.json
 ```
 
@@ -174,13 +174,13 @@ ImportError: cannot import name 'driver' from 'triton.runtime'
 
 **说明**: `vllm_adapter.py` 会自动尝试补丁，在日志中搜索:
 ```bash
-kubectl logs <pod> -c engine -n wings-infer | grep -i triton
+kubectl logs <pod> -c engine -n wings-control | grep -i triton
 ```
 
 **如果自动补丁失败**:
 ```bash
 # 手动验证 Triton 路径
-kubectl exec <pod> -c engine -n wings-infer -- \
+kubectl exec <pod> -c engine -n wings-control -- \
   python -c "import triton; print(triton.__file__)"
 ```
 
@@ -191,11 +191,11 @@ kubectl exec <pod> -c engine -n wings-infer -- \
 **排查**:
 ```bash
 # 检查 LD_LIBRARY_PATH 是否包含宿主机驱动和容器内 CANN
-kubectl exec <pod> -c engine -n wings-infer -- \
+kubectl exec <pod> -c engine -n wings-control -- \
   bash -c 'echo $LD_LIBRARY_PATH | tr ":" "\n" | grep -i ascend'
 
 # 检查是否有重复库
-kubectl exec <pod> -c engine -n wings-infer -- \
+kubectl exec <pod> -c engine -n wings-control -- \
   find / -name "libascendcl.so*" 2>/dev/null
 ```
 
@@ -245,5 +245,5 @@ kubectl exec <pod> -c engine -n wings-infer -- \
 
 ```bash
 # 一次性查看所有容器日志
-kubectl logs <pod> -n wings-infer --all-containers=true --tail=50
+kubectl logs <pod> -n wings-control --all-containers=true --tail=50
 ```

@@ -14,7 +14,7 @@
 | **k3s 部署方式** | Docker-in-Docker（`--privileged --net=host`） |
 | **模型** | DeepSeek-R1-Distill-Qwen-1.5B |
 | **vLLM 版本** | v0.13.0（NCCL 2.27.5 + CUDA 12.9） |
-| **wings-infer 镜像** | `wings-infer:dist-nv-dev-zhanghui` |
+| **wings-control 镜像** | `wings-control:dist-nv-dev-zhanghui` |
 | **部署方式** | StatefulSet（2 replicas） + hostNetwork 模式 |
 
 ## 2. 架构
@@ -22,10 +22,10 @@
 ```
 StatefulSet: infer (replicas=2)
 ├── infer-0 (ubuntu2204 / 7.6.16.150) → rank 0 (DP Coordinator + EngineCore_DP0)
-│   ├── wings-infer container → 生成 head 脚本
+│   ├── wings-control container → 生成 head 脚本
 │   └── engine container → vLLM API Server (port 17000) + DP Coordinator (port 13355)
 └── infer-1 (a100 / 7.6.52.148) → rank 1 (headless)
-    ├── wings-infer container → 生成 worker 脚本
+    ├── wings-control container → 生成 worker 脚本
     └── engine container → vLLM headless worker (连接 7.6.16.150:13355)
 ```
 
@@ -115,7 +115,7 @@ infer-1   2/2     Running   2 (9m19s ago)   71m   7.6.52.148   a100
 }
 ```
 
-### 6.2 端口 18000 — wings-infer 代理
+### 6.2 端口 18000 — wings-control 代理
 
 | API | HTTP | 耗时 | 结果 |
 |---|---|---|---|
@@ -150,7 +150,7 @@ infer-1   2/2     Running   2 (9m19s ago)   71m   7.6.52.148   a100
 | 端口 | 用途 | /health | /v1/models | /v1/chat/completions | /v1/completions | /version |
 |---|---|---|---|---|---|---|
 | **17000** | vLLM 引擎直连 | ✅ | ✅ | ✅ (0.208s) | ✅ (0.078s) | ✅ |
-| **18000** | wings-infer 代理 | ✅ | ✅ | ✅ (0.191s) | — | — |
+| **18000** | wings-control 代理 | ✅ | ✅ | ✅ (0.191s) | — | — |
 | **19000** | 健康检查 | ✅ | — | — | — | — |
 
 ## 7. StatefulSet YAML 关键配置

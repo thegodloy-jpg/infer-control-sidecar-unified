@@ -34,7 +34,7 @@
 | 镜像 | 版本 | 说明 |
 |------|------|------|
 | `sglang-infer:zhanghui-20260228` | 21.7 GiB | SGLang 推理引擎 |
-| `wings-infer:dist-nv-dev-zhanghui` | - | wings-infer 代理 sidecar |
+| `wings-control:dist-nv-dev-zhanghui` | - | wings-control 代理 sidecar |
 
 ---
 
@@ -61,7 +61,7 @@ spec:
         - topologyKey: kubernetes.io/hostname   # 强制两个 Pod 在不同节点
 ```
 
-### wings-infer 关键环境变量
+### wings-control 关键环境变量
 
 ```yaml
 DISTRIBUTED: "true"
@@ -138,7 +138,7 @@ export CUDA_VISIBLE_DEVICES=$L20_IDX
 | 4 | `tp_size must be divisible by number of nodes` | SGLang 要求 tp_size ≥ nnodes；`TP_SIZE=1` + `NNODES=2` 断言失败 | 添加 `NODE_IPS="7.6.16.150,7.6.52.148"` → config_loader 计算 tp_size=1×2=2 |
 | 5 | "No L20 found via nvidia-smi, using GPU 0" | sglang 容器内 nvidia-smi grep L20 不可靠 | 改为 hostname 匹配: a100→GPU1, ubuntu2204→GPU2 |
 | 6 | GPU 显存严重不均衡 (rank-0=8.32GB, rank-1=43.81GB) | .150 删除 vLLM DP Pod 后遗留孤立进程 (PID 2064330/2065931, 来自 VLLM::EngineCore) 仍占用 GPU 2+3 共 ~79GB | `kill -9 2064330 2065931` 释放 GPU，重新启动 Pod |
-| 7 | config_loader tp_size 仍为 1 | `get_node_ips()` 读取 `NODE_IPS` 环境变量，wings-infer 容器未设置 | 在 wings-infer 容器 env 中添加 `NODE_IPS` |
+| 7 | config_loader tp_size 仍为 1 | `get_node_ips()` 读取 `NODE_IPS` 环境变量，wings-control 容器未设置 | 在 wings-control 容器 env 中添加 `NODE_IPS` |
 
 ---
 
@@ -213,7 +213,7 @@ curl -X POST http://7.6.16.150:17000/v1/chat/completions \
   } ✅
 ```
 
-#### 端口 18000 — wings-infer 代理
+#### 端口 18000 — wings-control 代理
 
 ```bash
 # Health Check
@@ -256,7 +256,7 @@ curl http://7.6.16.150:19000/health
 | KV Cache 分配 | ✅ |
 | CUDA Graph 捕获 | ✅ |
 | Port 17000 SGLang 引擎直连推理 | ✅ |
-| Port 18000 wings-infer 代理推理 | ✅ |
+| Port 18000 wings-control 代理推理 | ✅ |
 | Port 19000 健康检查状态 | ✅ |
 | DeepSeek-R1 推理正确输出 | ✅ |
 

@@ -12,7 +12,7 @@
 ```
 Node
 ├── Pod (Deployment)
-│   ├── wings-infer (sidecar)
+│   ├── wings-control (sidecar)
 │   │   ├── :18000 Proxy
 │   │   └── :19000 Health
 │   └── engine (sglang)
@@ -35,7 +35,7 @@ Node
   value: "/models/your-model-name"
 
 # 镜像
-image: wings-infer:latest                      # Sidecar
+image: wings-control:latest                      # Sidecar
 image: lmsysorg/sglang:latest                  # SGLang 引擎
 
 # 模型存储
@@ -71,7 +71,7 @@ env:
 
 ```bash
 kubectl apply -k k8s/overlays/sglang-single/
-kubectl -n wings-infer get pods -w
+kubectl -n wings-control get pods -w
 
 # 健康检查
 curl http://<NODE_IP>:30190/health
@@ -106,7 +106,7 @@ SGLang 引擎的健康检查有特殊参数:
 ```
 Node-0                                    Node-1
 ├── Pod infer-0 (rank-0)                  ├── Pod infer-1 (rank-1)
-│   ├── wings-infer                       │   ├── wings-infer
+│   ├── wings-control                       │   ├── wings-control
 │   │   ├── :18000 Proxy                  │   │   └── :19000 Health
 │   │   └── :19000 Health                 │   └── engine
 │   └── engine                            │       └── sglang.launch_server
@@ -176,7 +176,7 @@ env:
 
 ```bash
 kubectl apply -k k8s/overlays/sglang-distributed/
-kubectl -n wings-infer get pods -w
+kubectl -n wings-control get pods -w
 
 # 仅通过 rank-0 代理端口访问
 curl http://<RANK0_IP>:30180/v1/chat/completions \
@@ -188,10 +188,10 @@ curl http://<RANK0_IP>:30180/v1/chat/completions \
 
 ```bash
 # 检查 SGLang 启动日志
-kubectl logs infer-0 -c engine -n wings-infer --tail=50
+kubectl logs infer-0 -c engine -n wings-control --tail=50
 
 # 检查分布式通信端口
-kubectl exec infer-1 -c engine -n wings-infer -- \
+kubectl exec infer-1 -c engine -n wings-control -- \
   python3 -c "import socket;s=socket.socket();s.settimeout(2);s.connect(('<HEAD_IP>',28030));print('ok');s.close()"
 
 # NCCL 调试日志

@@ -1,20 +1,20 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: wings-infer
+  name: wings-control
   labels:
-    app: wings-infer
+    app: wings-control
 spec:
   replicas: 1
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app: wings-infer
+      app: wings-control
   template:
     metadata:
       labels:
-        app: wings-infer
+        app: wings-control
     spec:
       # ---- 共享卷配置 ----
       volumes:
@@ -44,15 +44,15 @@ spec:
 
       containers:
         # ============================================================
-        # Wings-Infer 控制容器（新版 launcher 模式）
+        # Wings-Control 控制容器（新版 launcher 模式）
         # 职责：解析参数 → 写共享卷命令 → 启动 proxy/health 子进程
         # 端口规划：
         #   17000 - 引擎后端（由 vllm-engine 容器监听）
         #   18000 - 业务代理 proxy（对外暴露）
         #   19000 - 健康探针 health（K8s 探针入口）
         # ============================================================
-        - name: wings-infer
-          image: wings-infer:latest
+        - name: wings-control
+          image: wings-control:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 18000
@@ -133,7 +133,7 @@ spec:
           command: ["/bin/sh", "-c"]
           args:
             - |
-              # 等待 wings-infer 写入启动命令
+              # 等待 wings-control 写入启动命令
               echo "Waiting for start command..."
               while [ ! -f /shared-volume/start_command.sh ]; do
                 sleep 1

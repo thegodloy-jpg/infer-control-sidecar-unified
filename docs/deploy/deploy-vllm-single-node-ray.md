@@ -32,7 +32,7 @@
 │  Pod: infer-0 (rank 0, GPU 0)          Pod: infer-1 (rank 1, GPU 1)      │
 │  IP: 10.42.1.x                         IP: 10.42.1.y                     │
 │                                                                           │
-│  ┌─ wings-infer (sidecar) ────┐        ┌─ wings-infer (sidecar) ────┐    │
+│  ┌─ wings-control (sidecar) ────┐        ┌─ wings-control (sidecar) ────┐    │
 │  │ • 写 Pod IP → hostPath     │        │ • 写 Pod IP → hostPath     │    │
 │  │ • 读 worker IP ← hostPath  │        │ • 读 master IP ← hostPath  │    │
 │  │ • 生成 start_command.sh   │        │ • 生成 start_command.sh   │    │
@@ -100,7 +100,7 @@ entrypoint 中：`ORDINAL=${POD_NAME##*-}; export CUDA_VISIBLE_DEVICES=$ORDINAL`
 | GPU 设备 | `/dev/nvidia0`, `/dev/nvidia1` 等设备文件可访问 |
 | NVIDIA 库 | nvidia 用户态库路径（或已在标准 LD_LIBRARY_PATH 中） |
 | 模型 | 预下载到节点本地路径 |
-| 镜像 | wings-infer sidecar 镜像 + vLLM 引擎镜像 |
+| 镜像 | wings-control sidecar 镜像 + vLLM 引擎镜像 |
 
 ### 4.2 验证 GPU 可用
 
@@ -160,7 +160,7 @@ volumes:
       path: /mnt/models            # 宿主机模型目录
 
 # 6. 镜像
-image: wings-infer:latest          # sidecar
+image: wings-control:latest          # sidecar
 image: vllm/vllm-openai:v0.13.0   # engine
 
 # 7. GPU 设备卷 & 挂载
@@ -180,27 +180,27 @@ rm -rf /tmp/wings-ip-exchange/*
 
 ```bash
 # 创建 namespace（如不存在）
-kubectl create namespace wings-infer 2>/dev/null || true
+kubectl create namespace wings-control 2>/dev/null || true
 
 # 部署
 kubectl apply -f k8s/overlays/vllm-distributed/my-deployment.yaml
 
 # 观察 Pod 状态
-kubectl -n wings-infer get pods -w
+kubectl -n wings-control get pods -w
 ```
 
 ### 5.5 验证启动
 
 ```bash
 # 查看 sidecar 日志（master）
-kubectl -n wings-infer logs infer-0 -c wings-infer --tail=50
+kubectl -n wings-control logs infer-0 -c wings-control --tail=50
 
 # 查看 engine 日志（master）
-kubectl -n wings-infer logs infer-0 -c engine --tail=50
+kubectl -n wings-control logs infer-0 -c engine --tail=50
 
 # 查看 worker 日志
-kubectl -n wings-infer logs infer-1 -c wings-infer --tail=20
-kubectl -n wings-infer logs infer-1 -c engine --tail=20
+kubectl -n wings-control logs infer-1 -c wings-control --tail=20
+kubectl -n wings-control logs infer-1 -c engine --tail=20
 ```
 
 预期日志关键词:
@@ -220,7 +220,7 @@ INFO: Started server process, listening on http://0.0.0.0:17000
 
 ```bash
 # 进入 master Pod
-kubectl -n wings-infer exec -it infer-0 -c wings-infer -- /bin/sh
+kubectl -n wings-control exec -it infer-0 -c wings-control -- /bin/sh
 
 # 健康检查
 curl -s http://127.0.0.1:19000/health
@@ -277,7 +277,7 @@ print(json.dumps(result, indent=2, ensure_ascii=False))
 EOF
 
 # 2. 在 Pod 内执行 (脚本通过 hostPath 自动可用)
-kubectl -n wings-infer exec infer-0 -c wings-infer -- python3 /ip-exchange/test_infer.py
+kubectl -n wings-control exec infer-0 -c wings-control -- python3 /ip-exchange/test_infer.py
 # 或者用 crictl:
 crictl exec <CONTAINER_ID> python3 /ip-exchange/test_infer.py
 ```
@@ -366,7 +366,7 @@ spec:
 ### 9.1 Pod 卡在 Pending
 
 ```bash
-kubectl -n wings-infer describe pod infer-0
+kubectl -n wings-control describe pod infer-0
 # 检查 nodeName 是否正确、资源是否充足
 ```
 
@@ -377,25 +377,25 @@ kubectl -n wings-infer describe pod infer-0
 ls -la /tmp/wings-ip-exchange/
 
 # 检查两个 Pod 是否同时启动
-kubectl -n wings-infer get pods -o wide
+kubectl -n wings-control get pods -o wide
 ```
 
 ### 9.3 Ray Worker 连不上 Head
 
 ```bash
 # 检查 Pod 间网络连通性
-kubectl -n wings-infer exec infer-1 -c engine -- \
+kubectl -n wings-control exec infer-1 -c engine -- \
   python3 -c "import socket; s=socket.socket(); s.settimeout(5); s.connect(('MASTER_POD_IP',28020)); print('OK'); s.close()"
 
 # 检查 NCCL_SOCKET_IFNAME
-kubectl -n wings-infer exec infer-0 -c engine -- env | grep NCCL
+kubectl -n wings-control exec infer-0 -c engine -- env | grep NCCL
 ```
 
 ### 9.4 CUDA 设备不可见
 
 ```bash
-kubectl -n wings-infer exec infer-0 -c engine -- nvidia-smi
-kubectl -n wings-infer exec infer-0 -c engine -- env | grep CUDA_VISIBLE
+kubectl -n wings-control exec infer-0 -c engine -- nvidia-smi
+kubectl -n wings-control exec infer-0 -c engine -- env | grep CUDA_VISIBLE
 ```
 
 ### 9.5 vLLM OOM
@@ -432,7 +432,7 @@ rm -rf /tmp/wings-ip-exchange/*
 | GPU | 2×NVIDIA RTX 4090 + 2×NVIDIA L20 |
 | 使用 GPU | GPU 0 + GPU 1 (RTX 4090) |
 | k3s 版本 | v1.30.6+k3s1 (Docker-in-Docker) |
-| Sidecar 镜像 | wings-infer:ray-dist-zhanghui |
+| Sidecar 镜像 | wings-control:ray-dist-zhanghui |
 | Engine 镜像 | vllm/vllm-openai:v0.13.0 |
 | 模型 | DeepSeek-R1-Distill-Qwen-1.5B |
 | Pod IP | infer-0: 10.42.1.8, infer-1: 10.42.1.9 |

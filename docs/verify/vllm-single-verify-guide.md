@@ -14,10 +14,10 @@
 | 宿主机 | 7.6.52.148 (root / xfusion@1234!) |
 | 工作目录 | /home/zhanghui |
 | k3s 容器 | k3s-verify-server-zhanghui |
-| k3s namespace | wings-infer |
+| k3s namespace | wings-control |
 | GPU | GPU1 = L20 (46GB), CUDA_VISIBLE_DEVICES=1 |
 | 模型路径 | /mnt/models/DeepSeek-R1-Distill-Qwen-1.5B |
-| wings-infer 镜像 | wings-infer:unified-zhanghui |
+| wings-control 镜像 | wings-control:unified-zhanghui |
 | vLLM 引擎镜像 | vllm/vllm-openai:v0.13.0 (已在 k3s 中) |
 | K8s hostname (.148) | ca4109381399 |
 
@@ -58,10 +58,10 @@ ssh root@7.6.52.148
 cd /home/zhanghui/infer-control-sidecar-unified
 
 # 构建镜像（使用新 tag 区分于之前的 dist-nv-dev-zhanghui）
-docker build -t wings-infer:unified-zhanghui .
+docker build -t wings-control:unified-zhanghui .
 
 # 验证构建
-docker run --rm wings-infer:unified-zhanghui --help
+docker run --rm wings-control:unified-zhanghui --help
 ```
 
 ---
@@ -70,12 +70,12 @@ docker run --rm wings-infer:unified-zhanghui --help
 
 ```bash
 # 导出并导入到 k3s 容器
-docker save wings-infer:unified-zhanghui -o /tmp/wings-infer-unified.tar
-docker cp /tmp/wings-infer-unified.tar k3s-verify-server-zhanghui:/tmp/
-docker exec k3s-verify-server-zhanghui ctr -n k8s.io images import /tmp/wings-infer-unified.tar
+docker save wings-control:unified-zhanghui -o /tmp/wings-control-unified.tar
+docker cp /tmp/wings-control-unified.tar k3s-verify-server-zhanghui:/tmp/
+docker exec k3s-verify-server-zhanghui ctr -n k8s.io images import /tmp/wings-control-unified.tar
 
 # 验证镜像已导入
-docker exec k3s-verify-server-zhanghui ctr -n k8s.io images list | grep wings-infer
+docker exec k3s-verify-server-zhanghui ctr -n k8s.io images list | grep wings-control
 ```
 
 ---
@@ -86,12 +86,12 @@ docker exec k3s-verify-server-zhanghui ctr -n k8s.io images list | grep wings-in
 # 检查是否有残留的 Pod 占用 GPU
 docker exec k3s-verify-server-zhanghui kubectl get pods -A
 
-# 如果 wings-infer namespace 中有运行中的 Pod，先删除
-docker exec k3s-verify-server-zhanghui kubectl delete statefulset infer -n wings-infer --ignore-not-found
-docker exec k3s-verify-server-zhanghui kubectl delete deployment infer-dp infer-sglang -n wings-infer --ignore-not-found
+# 如果 wings-control namespace 中有运行中的 Pod，先删除
+docker exec k3s-verify-server-zhanghui kubectl delete statefulset infer -n wings-control --ignore-not-found
+docker exec k3s-verify-server-zhanghui kubectl delete deployment infer-dp infer-sglang -n wings-control --ignore-not-found
 
 # 确认 GPU 已释放
-docker exec k3s-verify-server-zhanghui kubectl get pods -n wings-infer
+docker exec k3s-verify-server-zhanghui kubectl get pods -n wings-control
 # 预期: No resources found
 ```
 
@@ -101,7 +101,7 @@ docker exec k3s-verify-server-zhanghui kubectl get pods -n wings-infer
 
 ```bash
 # 创建 namespace
-docker exec k3s-verify-server-zhanghui kubectl create namespace wings-infer --dry-run=client -o yaml | \
+docker exec k3s-verify-server-zhanghui kubectl create namespace wings-control --dry-run=client -o yaml | \
   docker exec -i k3s-verify-server-zhanghui kubectl apply -f -
 
 # Headless Service（单机其实不需要，但保持一致）
@@ -110,7 +110,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: infer-hl
-  namespace: wings-infer
+  namespace: wings-control
 spec:
   clusterIP: None
   selector:
@@ -130,7 +130,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: infer-api
-  namespace: wings-infer
+  namespace: wings-control
 spec:
   selector:
     app.kubernetes.io/name: infer-vllm
@@ -148,7 +148,7 @@ EOF
 
 ## 步骤 6: 部署 vLLM 单机 StatefulSet
 
-> 使用已有的 `statefulset-nv-single-148.yaml`，仅需更新镜像 tag 为 `wings-infer:unified-zhanghui`
+> 使用已有的 `statefulset-nv-single-148.yaml`，仅需更新镜像 tag 为 `wings-control:unified-zhanghui`
 
 ```bash
 cat <<'EOF' | docker exec -i k3s-verify-server-zhanghui kubectl apply -f -
@@ -156,7 +156,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: infer
-  namespace: wings-infer
+  namespace: wings-control
 spec:
   serviceName: infer-hl
   replicas: 1
@@ -200,8 +200,8 @@ spec:
           path: /mnt/nvidia-libs
           type: Directory
       containers:
-      - name: wings-infer
-        image: wings-infer:unified-zhanghui
+      - name: wings-control
+        image: wings-control:unified-zhanghui
         imagePullPolicy: IfNotPresent
         env:
         - name: ENGINE
@@ -278,20 +278,20 @@ EOF
 
 ```bash
 # 实时观察 Pod 状态
-docker exec k3s-verify-server-zhanghui kubectl get pods -n wings-infer -w
+docker exec k3s-verify-server-zhanghui kubectl get pods -n wings-control -w
 
 # 预期：
 # NAME      READY   STATUS    RESTARTS   AGE
 # infer-0   2/2     Running   0          2m
 
-# 查看 wings-infer 容器日志（脚本生成）
-docker exec k3s-verify-server-zhanghui kubectl logs -n wings-infer infer-0 -c wings-infer -f
+# 查看 wings-control 容器日志（脚本生成）
+docker exec k3s-verify-server-zhanghui kubectl logs -n wings-control infer-0 -c wings-control -f
 
 # 查看 engine 容器日志（vLLM 启动）
-docker exec k3s-verify-server-zhanghui kubectl logs -n wings-infer infer-0 -c engine -f
+docker exec k3s-verify-server-zhanghui kubectl logs -n wings-control infer-0 -c engine -f
 
 # 查看生成的启动脚本内容
-docker exec k3s-verify-server-zhanghui kubectl exec -n wings-infer infer-0 -c wings-infer -- \
+docker exec k3s-verify-server-zhanghui kubectl exec -n wings-control infer-0 -c wings-control -- \
   cat /shared-volume/start_command.sh
 ```
 
@@ -373,10 +373,10 @@ curl http://127.0.0.1:17000/v1/models
 
 ```bash
 # 删除 StatefulSet（释放 GPU）
-docker exec k3s-verify-server-zhanghui kubectl delete statefulset infer -n wings-infer
+docker exec k3s-verify-server-zhanghui kubectl delete statefulset infer -n wings-control
 
 # 确认 Pod 已删除
-docker exec k3s-verify-server-zhanghui kubectl get pods -n wings-infer
+docker exec k3s-verify-server-zhanghui kubectl get pods -n wings-control
 ```
 
 ---
@@ -385,7 +385,7 @@ docker exec k3s-verify-server-zhanghui kubectl get pods -n wings-infer
 
 | # | 检查项 | 预期结果 | 实际结果 |
 |---|--------|----------|----------|
-| 1 | 镜像构建 | `wings-infer:unified-zhanghui` 构建成功 | ✅ 构建成功 |
+| 1 | 镜像构建 | `wings-control:unified-zhanghui` 构建成功 | ✅ 构建成功 |
 | 2 | 镜像导入 k3s | `ctr images list` 可见 | ✅ 已导入 |
 | 3 | Pod 启动 | infer-0 2/2 Running | ✅ 2/2 Running |
 | 4 | start_command.sh 生成 | 包含 `vllm.entrypoints.openai.api_server` | ✅ 正确生成 |

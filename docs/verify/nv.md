@@ -19,7 +19,7 @@ GPU 与模型约束：
 方案 A 本质：把 wings/wings 裸机分布式逻辑"搬"到 K8s，用 StatefulSet Pod 序号替代 IP 地址判断角色。
 
 
-每个 Pod  └─ wings-infer 读 NODE_RANK       ├─ rank=0 → 生成 head 脚本 → ray start --head + vllm serve       └─ rank=N → 生成 worker 脚本 → ray start --address=head --blockPod 间通信靠 Headless Service 提供固定 DNS，head 地址写死为 infer-0.infer-hl
+每个 Pod  └─ wings-control 读 NODE_RANK       ├─ rank=0 → 生成 head 脚本 → ray start --head + vllm serve       └─ rank=N → 生成 worker 脚本 → ray start --address=head --blockPod 间通信靠 Headless Service 提供固定 DNS，head 地址写死为 infer-0.infer-hl
 
 步骤:
 
@@ -205,16 +205,16 @@ exec python3 -m sglang.launch_server \
 ```bash
 # 在 .148 上构建（改造后的代码）
 cd /home/zhanghui/infer-control-sidecar-main-nv-dist
-docker build -t wings-infer:dist-nv-dev-zhanghui .
+docker build -t wings-control:dist-nv-dev-zhanghui .
 
 # 导出并导入到 .148 的 k3s-verify-server-zhanghui 容器中
-docker save wings-infer:dist-nv-dev-zhanghui -o /tmp/wings-infer-zhanghui.tar
-docker cp /tmp/wings-infer-zhanghui.tar k3s-verify-server-zhanghui:/tmp/
-docker exec k3s-verify-server-zhanghui ctr -n k8s.io images import /tmp/wings-infer-zhanghui.tar
+docker save wings-control:dist-nv-dev-zhanghui -o /tmp/wings-control-zhanghui.tar
+docker cp /tmp/wings-control-zhanghui.tar k3s-verify-server-zhanghui:/tmp/
+docker exec k3s-verify-server-zhanghui ctr -n k8s.io images import /tmp/wings-control-zhanghui.tar
 
 # 同样也需传到 .150 并导入其 k3s-verify-agent-zhanghui 容器中
-scp /tmp/wings-infer-zhanghui.tar root@7.6.16.150:/tmp/
-ssh root@7.6.16.150 "docker cp /tmp/wings-infer-zhanghui.tar k3s-verify-agent-zhanghui:/tmp/ && docker exec k3s-verify-agent-zhanghui ctr -n k8s.io images import /tmp/wings-infer-zhanghui.tar"
+scp /tmp/wings-control-zhanghui.tar root@7.6.16.150:/tmp/
+ssh root@7.6.16.150 "docker cp /tmp/wings-control-zhanghui.tar k3s-verify-agent-zhanghui:/tmp/ && docker exec k3s-verify-agent-zhanghui ctr -n k8s.io images import /tmp/wings-control-zhanghui.tar"
 ```
 
 ### 8. 确认引擎镜像并导入
@@ -320,8 +320,8 @@ spec:
             path: /mnt/nvidia-libs
             type: Directory
       containers:
-        - name: wings-infer
-          image: wings-infer:dist-nv-dev-zhanghui
+        - name: wings-control
+          image: wings-control:dist-nv-dev-zhanghui
           env:
             - name: DISTRIBUTED
               value: "true"
@@ -394,8 +394,8 @@ docker exec -i k3s-verify-server-zhanghui kubectl get pods -n inference -w
 # infer-0   2/2   Running   0   ...   node=7.6.52.148 (对应容器网络)
 # infer-1   2/2   Running   0   ...   node=7.6.16.150 (对应容器网络)
 
-# 查看 wings-infer 生成的脚本内容
-docker exec -i k3s-verify-server-zhanghui kubectl exec -n inference infer-0 -c wings-infer -- \
+# 查看 wings-control 生成的脚本内容
+docker exec -i k3s-verify-server-zhanghui kubectl exec -n inference infer-0 -c wings-control -- \
   cat /shared-volume/start_command.sh
 
 # 查看 engine 容器日志
@@ -440,7 +440,7 @@ docker exec -i k3s-verify-server-zhanghui kubectl rollout status statefulset/inf
 | 节点 | .148 (a100)，GPU0=A100(40GB)、GPU1=L20(46GB) |
 | 引擎 GPU | CUDA_VISIBLE_DEVICES=1（L20 46GB） |
 | 模型 | DeepSeek-R1-Distill-Qwen-1.5B（/mnt/models/，hardlink 实体目录） |
-| wings-infer 镜像 | wings-infer:dist-nv-dev-zhanghui |
+| wings-control 镜像 | wings-control:dist-nv-dev-zhanghui |
 | vLLM 镜像 | vllm/vllm-openai:v0.13.0 |
 | SGLang 镜像 | sglang-infer:zhanghui-20260228（21.7GiB，Docker 导入 k3s） |
 
@@ -462,7 +462,7 @@ Pod: infer-dp-765b6c665d-l5m6d   2/2 Running   节点: a100 (.148)
 
 模型加载: ✅ 15.5s, dtype=bfloat16, KV cache=36.23GiB, CUDA graphs captured
 /v1/models: ✅ 返回 DeepSeek-R1-Distill-Qwen-1.5B
-/v1/chat/completions: ✅ "2 + 2 = 4" (wings-infer:18000 → engine:17000)
+/v1/chat/completions: ✅ "2 + 2 = 4" (wings-control:18000 → engine:17000)
 ```
 
 YAML: `deployment-vllm-dp-nv-verify.yaml` + `service-vllm-dp-nv-verify.yaml`
@@ -480,7 +480,7 @@ Server: ✅ "The server is fired up and ready to roll!" Uvicorn on :17000
 
 /v1/models: ✅ {"id":"DeepSeek-R1-Distill-Qwen-1.5B","owned_by":"sglang","max_model_len":5120}
 /v1/chat/completions: ✅ "2 + 2 = 4" (0.34s, prompt=14, completion=50)
-   wings-infer:18000 → sglang:17000 链路通
+   wings-control:18000 → sglang:17000 链路通
 ```
 
 YAML: `deployment-sglang-nv-verify.yaml`（含 nvidia-smi shell 包装器 workaround）
@@ -490,7 +490,7 @@ YAML: `deployment-sglang-nv-verify.yaml`（含 nvidia-smi shell 包装器 workar
 ```
 Pod: infer-0   2/2 Running   节点: a100 (.148)
 引擎: vllm/vllm-openai:v0.13.0   CUDA=1 (L20)   tp=1
-Sidecar: wings-infer:unified-zhanghui (infer-control-sidecar-unified)
+Sidecar: wings-control:unified-zhanghui (infer-control-sidecar-unified)
 GPU 占用: L20 41479 MiB / 46068 MiB
 
 模型加载: ✅ 19.2s, dtype=bfloat16, 3.35GiB

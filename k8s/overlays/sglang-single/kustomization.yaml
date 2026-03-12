@@ -4,7 +4,7 @@ resources:
   - ../../base
   - service.yaml
   - deployment.yaml
-namespace: wings-infer
+namespace: wings-control
 commonLabels:
   app.kubernetes.io/name: infer-sglang
   app.kubernetes.io/component: single

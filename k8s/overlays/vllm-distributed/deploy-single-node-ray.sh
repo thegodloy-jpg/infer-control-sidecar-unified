@@ -7,11 +7,11 @@
 #
 # 选项:
 #   --node-name NAME       k3s 节点名 (kubectl get nodes)
-#   --namespace NS         Kubernetes namespace (默认: wings-infer)
+#   --namespace NS         Kubernetes namespace (默认: wings-control)
 #   --gpu-count N          GPU 数量 (默认: 2)
 #   --model-name NAME      模型名称
 #   --model-host-path PATH 宿主机上的模型目录
-#   --sidecar-image IMG    Sidecar 镜像 (默认: wings-infer:latest)
+#   --sidecar-image IMG    Sidecar 镜像 (默认: wings-control:latest)
 #   --engine-image IMG     vLLM 引擎镜像 (默认: vllm/vllm-openai:v0.13.0)
 #   --nvidia-libs PATH     NVIDIA 用户态库路径 (可选)
 #   --dry-run              只生成 YAML，不部署
@@ -29,12 +29,12 @@
 set -euo pipefail
 
 # ---- 默认值 ----
-NAMESPACE="wings-infer"
+NAMESPACE="wings-control"
 GPU_COUNT=2
 MODEL_NAME=""
 MODEL_HOST_PATH="/mnt/models"
 NODE_NAME=""
-SIDECAR_IMAGE="wings-infer:latest"
+SIDECAR_IMAGE="wings-control:latest"
 ENGINE_IMAGE="vllm/vllm-openai:v0.13.0"
 NVIDIA_LIBS="/mnt/nvidia-libs"
 DRY_RUN=false
@@ -214,7 +214,7 @@ $(generate_gpu_volumes)
           type: Directory
 
       containers:
-      - name: wings-infer
+      - name: wings-control
         image: ${SIDECAR_IMAGE}
         imagePullPolicy: IfNotPresent
         command: ["/bin/sh", "-c"]
@@ -379,11 +379,11 @@ echo "监控 Pod 状态:"
 echo "  kubectl -n $NAMESPACE get pods -w"
 echo ""
 echo "查看日志:"
-echo "  kubectl -n $NAMESPACE logs infer-0 -c wings-infer --tail=50"
+echo "  kubectl -n $NAMESPACE logs infer-0 -c wings-control --tail=50"
 echo "  kubectl -n $NAMESPACE logs infer-0 -c engine --tail=50"
 echo ""
 echo "推理测试:"
-echo "  kubectl -n $NAMESPACE exec infer-0 -c wings-infer -- curl -s http://127.0.0.1:18000/v1/models"
+echo "  kubectl -n $NAMESPACE exec infer-0 -c wings-control -- curl -s http://127.0.0.1:18000/v1/models"
 echo ""
 echo "清理:"
 echo "  $0 --clean --namespace $NAMESPACE"

@@ -730,7 +730,7 @@ def _merge_mindie_params(params, ctx, engine_cmd_parameter, model_info=None):
         node_ips = get_node_ips()
         # MindIE config.json worldSize = LOCAL TP degree (devices per node).
         # Each MindIE daemon runs independently with TP on local devices.
-        # Cross-node coordination (DP) is handled by wings-infer sidecar.
+        # Cross-node coordination (DP) is handled by wings-control sidecar.
         # npuDeviceIds lists only LOCAL device IDs for this node.
         params['worldSize'] = int(ctx["device_count"])
         # multiNodesInferEnabled must be false for individual daemon instances.

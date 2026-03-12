@@ -20,7 +20,7 @@
 | 模型路径 | /mnt/cephfs/models/DeepSeek-R1-Distill-Qwen-1.5B | 需确认 cephfs 挂载情况 |
 | vllm-ascend 镜像 | `quay.io/ascend/vllm-ascend:v0.14.0rc1` ✅ | `quay.io/ascend/vllm-ascend:latest`（无 v0.14.0rc1，需传输） |
 | mindie 镜像 | `swr.cn-south-1.myhuaweicloud.com/ascendhub/mindie:2.2.RC1-800I-A2-py311-openeuler24.03-lts` ✅ | 同镜像 ✅（已存在） |
-| wings-infer 镜像 | `wings-infer:zhanghui-ascend-st` ✅（46h 前构建） | 需传输 |
+| wings-control 镜像 | `wings-control:zhanghui-ascend-st` ✅（46h 前构建） | 需传输 |
 | k3s 容器 | 尚未启动（需新建 `k3s-verify-server-ascend-zhanghui`） | 尚未启动（需新建 `k3s-verify-agent-ascend-zhanghui`） |
 
 > **注意**：.110 上已有大量他人 Docker 容器（30+），NPU 当前均空闲（HBM 3.4GB/65536MB 为系统占用）。使用 NPU 0 各一张。
@@ -49,7 +49,7 @@
 
 ```
 每个 Pod
- └─ wings-infer 读 NODE_RANK
+ └─ wings-control 读 NODE_RANK
      ├─ rank=0 → 生成 head 脚本 → (vllm-ascend) ray start --head + vllm serve
      │                          → (mindie)      写 config.json(rank=0) + mindieservice_daemon
      └─ rank=N → 生成 worker 脚本 → (vllm-ascend) ray start --address=head --block
@@ -133,7 +133,7 @@ ssh -o BatchMode=yes root@7.6.52.110 hostname   # → 910b-47 ✅
 |------|------|------|
 | `quay.io/ascend/vllm-ascend:v0.14.0rc1` | ✅ 已有（17GB）| ❌ 无此版本，需传输 |
 | `swr.cn-south-1.myhuaweicloud.com/ascendhub/mindie:2.2.RC1-...` | ✅ 已有（23.1GB）| ✅ 已有 |
-| `wings-infer:zhanghui-ascend-st` | ✅ 已有（164MB，46h前构建）| ❌ 需传输 |
+| `wings-control:zhanghui-ascend-st` | ✅ 已有（164MB，46h前构建）| ❌ 需传输 |
 | `rancher/k3s:v1.30.6-k3s1` | ✅ 210MB | ✅ 已从 .110 传输 |
 
 ### 3. 构建基于 Docker 的 k3s 双节点集群
@@ -391,7 +391,7 @@ mindie 跨节点分布式不使用 Ray，而是通过 **config.json 中的 `worl
 
 #### mindie（rank-0，node=7.6.52.110）
 ```bash
-# start_command.sh 内容（由 wings-infer 生成）
+# start_command.sh 内容（由 wings-control 生成）
 set +u
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
 source /usr/local/Ascend/nnal/atb/set_env.sh
@@ -427,7 +427,7 @@ exec ./bin/mindieservice_daemon
 
 ## 阶段三：镜像构建与推送
 
-### 8. 构建 wings-infer 镜像并导入 k3s containerd
+### 8. 构建 wings-control 镜像并导入 k3s containerd
 
 > **前提**: 阶段二代码改造已完成，改造目录为 `infer-control-sidecar-main-st-dist/backend-dist-nv-20260303/`
 
@@ -442,23 +442,23 @@ exec ./bin/mindieservice_daemon
 
 # 2. 构建镜像
 cd /data3/zhanghui/infer-control-sidecar-main-st-dist
-docker build -t wings-infer:zhanghui-ascend-st-dist .
+docker build -t wings-control:zhanghui-ascend-st-dist .
 
 # 3. 导入到 .110 k3s containerd
-docker save wings-infer:zhanghui-ascend-st-dist -o /tmp/wings-infer-ascend-st-dist.tar
-docker cp /tmp/wings-infer-ascend-st-dist.tar k3s-verify-server-ascend-zhanghui:/tmp/
-docker exec k3s-verify-server-ascend-zhanghui ctr -n k8s.io images import /tmp/wings-infer-ascend-st-dist.tar
+docker save wings-control:zhanghui-ascend-st-dist -o /tmp/wings-control-ascend-st-dist.tar
+docker cp /tmp/wings-control-ascend-st-dist.tar k3s-verify-server-ascend-zhanghui:/tmp/
+docker exec k3s-verify-server-ascend-zhanghui ctr -n k8s.io images import /tmp/wings-control-ascend-st-dist.tar
 
 # 4. 同步到 .170 agent 节点
-scp /tmp/wings-infer-ascend-st-dist.tar root@7.6.52.170:/tmp/
-ssh root@7.6.52.170 "docker cp /tmp/wings-infer-ascend-st-dist.tar \
+scp /tmp/wings-control-ascend-st-dist.tar root@7.6.52.170:/tmp/
+ssh root@7.6.52.170 "docker cp /tmp/wings-control-ascend-st-dist.tar \
   k3s-verify-agent-ascend-zhanghui:/tmp/ && \
   docker exec k3s-verify-agent-ascend-zhanghui ctr -n k8s.io images import \
-  /tmp/wings-infer-ascend-st-dist.tar"
+  /tmp/wings-control-ascend-st-dist.tar"
 
 # 5. 验证两节点均可见
-docker exec k3s-verify-server-ascend-zhanghui ctr -n k8s.io images ls | grep wings-infer
-ssh root@7.6.52.170 "docker exec k3s-verify-agent-ascend-zhanghui ctr -n k8s.io images ls | grep wings-infer"
+docker exec k3s-verify-server-ascend-zhanghui ctr -n k8s.io images ls | grep wings-control
+ssh root@7.6.52.170 "docker exec k3s-verify-agent-ascend-zhanghui ctr -n k8s.io images ls | grep wings-control"
 ```
 
 ### 9. 确认引擎镜像并导入
@@ -582,7 +582,7 @@ docker exec -i k3s-verify-server-ascend-zhanghui \
 | namespace | `inference` | `wings-verify-st-dist`（与 mindie 统一） |
 | StatefulSet name | `infer` | `infer-vllm`（避免与 mindie 冲突） |
 | serviceName | `infer-hl` | `infer-hl-vllm` |
-| wings-infer image | `wings-infer:dist-ascend-st-zhanghui` | `wings-infer:zhanghui-ascend-st-dist` |
+| wings-control image | `wings-control:dist-ascend-st-zhanghui` | `wings-control:zhanghui-ascend-st-dist` |
 | HEAD_NODE_ADDR | `infer-0.infer-hl.inference.svc.cluster.local` | `7.6.52.110`（hostNetwork 下用真实 IP）|
 | 驱动库挂载 | 有 `devmm_svm` | 无（vllm-ascend 镜像内置 CANN）|
 
@@ -595,7 +595,7 @@ docker exec -i k3s-verify-server-ascend-zhanghui \
 2. `image` 改为 mindie 引擎镜像
 3. 移除 `DISTRIBUTED_EXECUTOR_BACKEND`，改为 `MINDIE_WORLD_SIZE=2` 等 mindie 分布式参数
 4. engine 容器启动逻辑不变（等待 start_command.sh 并执行）
-5. start_command.sh 内容由 wings-infer 的 mindie_adapter 生成，包含 HCCL 通信参数和 config.json merge 逻辑
+5. start_command.sh 内容由 wings-control 的 mindie_adapter 生成，包含 HCCL 通信参数和 config.json merge 逻辑
 
 ---
 
@@ -609,9 +609,9 @@ docker exec -i k3s-verify-server-ascend-zhanghui kubectl get pods -n inference -
 # infer-0   2/2   Running   0   ...   node=7.6.52.110
 # infer-1   2/2   Running   0   ...   node=7.6.52.170
 
-# 查看 wings-infer 生成的脚本内容
+# 查看 wings-control 生成的脚本内容
 docker exec -i k3s-verify-server-ascend-zhanghui kubectl exec -n inference infer-0 \
-  -c wings-infer -- cat /shared-volume/start_command.sh
+  -c wings-control -- cat /shared-volume/start_command.sh
 
 # 查看 engine 日志
 docker exec -i k3s-verify-server-ascend-zhanghui kubectl logs -n inference infer-0 -c engine -f
@@ -656,8 +656,8 @@ docker exec -i k3s-verify-server-ascend-zhanghui kubectl rollout status stateful
 | 6 | mindie 多节点分布式的通信方式 | ❓ 待验证 | 需验证 `2.2.RC1` 版本跨节点 worldSize=2 是否可用（单机已有历史验证记录） |
 | 7 | vllm-ascend Ray 对 NPU 资源上报 | ❓ 待验证 | 需确认 ray start 在昇腾环境是否正确上报 NPU 资源，或改用 `--resources '{"NPU":1}'` |
 | 8 | vllm-ascend:v0.14.0rc1 传输到 .170 | ⏳ 待执行 | 17GB，需 docker save+scp+docker load |
-| 9 | 构建 wings-infer:zhanghui-ascend-st-dist 镜像 | ⏳ 待执行 | 基于本次改造代码 docker build，然后导入 k3s containerd |
-| 10 | 镜像传输到两节点 k3s containerd | ⏳ 待执行 | wings-infer + vllm-ascend + mindie 三张镜像均需导入 |
+| 9 | 构建 wings-control:zhanghui-ascend-st-dist 镜像 | ⏳ 待执行 | 基于本次改造代码 docker build，然后导入 k3s containerd |
+| 10 | 镜像传输到两节点 k3s containerd | ⏳ 待执行 | wings-control + vllm-ascend + mindie 三张镜像均需导入 |
 | 11 | vllm-ascend K8s YAML 文件 | ✅ 已完成 | `service-vllm-ascend-dist.yaml` + `statefulset-vllm-ascend-dist.yaml` 已创建（2026-03-04）|
 
 ---

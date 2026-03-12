@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: infer
-  namespace: wings-infer
+  namespace: wings-control
 spec:
   serviceName: infer-hl
   replicas: 2
@@ -52,8 +52,8 @@ spec:
           path: /mnt/nvidia-libs
           type: Directory
       containers:
-      - name: wings-infer
-        image: wings-infer:dist-nv-dev-zhanghui
+      - name: wings-control
+        image: wings-control:dist-nv-dev-zhanghui
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 18000

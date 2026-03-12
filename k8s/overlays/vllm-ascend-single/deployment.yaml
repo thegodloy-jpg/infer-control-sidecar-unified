@@ -47,8 +47,8 @@ spec:
             sizeLimit: 2Gi
 
       containers:
-        - name: wings-infer
-          image: wings-infer:latest                      # CUSTOMIZE
+        - name: wings-control
+          image: wings-control:latest                      # CUSTOMIZE
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 18000

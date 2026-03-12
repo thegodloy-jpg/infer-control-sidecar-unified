@@ -206,7 +206,7 @@ def _build_distributed_env_commands(params: Dict[str, Any]) -> List[str]:
 
     注意:
         - MindIE 的 worldSize 设为本地 TP 并行度 (设备数)
-        - 跨节点 DP 并行由 wings-infer sidecar 外部协调
+        - 跨节点 DP 并行由 wings-control sidecar 外部协调
         - rank table 仅包含本节点信息，使 worldSize % n_nodes == 0 校验通过
     """
     is_distributed = params.get("distributed", False)
@@ -244,7 +244,7 @@ def _build_distributed_env_commands(params: Dict[str, Any]) -> List[str]:
     # and n_nodes = server_count from rank table, we generate a SINGLE-NODE
     # rank table containing only THIS node's entry.  This gives n_nodes=1
     # so worldSize(1) % 1 == 0 passes validation.
-    # For cross-node DP, coordination is handled by wings-infer sidecar.
+    # For cross-node DP, coordination is handled by wings-control sidecar.
     ranktable_path = "/tmp/hccl_ranktable.json"
     # Use only the current node's IP for the single-node rank table
     local_node_ip = node_ips_list[node_rank] if node_rank < len(node_ips_list) else master_addr
@@ -286,7 +286,7 @@ def _build_rank_table_commands(
       - MindIE 使用 rank table 中的 server_count 确定 n_nodes
       - MindIE 会校验 worldSize % n_nodes == 0
       - 通过设置 server_count=1，使 worldSize(设备数) % 1 == 0 始终通过
-      - 跨节点 DP 协调由 wings-infer sidecar 外部处理
+      - 跨节点 DP 协调由 wings-control sidecar 外部处理
 
     Args:
         node_ips:     节点 IP 列表（当前实现仅使用第一个）

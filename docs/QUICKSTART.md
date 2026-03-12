@@ -15,10 +15,10 @@
 cd infer-control-sidecar-unified/
 
 # 构建
-docker build -t wings-infer:latest .
+docker build -t wings-control:latest .
 
 # 如果是多节点，推送到私有仓库或各节点本地加载
-docker save wings-infer:latest | ssh user@node2 'docker load'
+docker save wings-control:latest | ssh user@node2 'docker load'
 ```
 
 ## 步骤 2: 修改配置
@@ -53,8 +53,8 @@ env:
   image: quay.io/ascend/vllm-ascend:v0.7.3   # ← 实际镜像
 
 # Sidecar 镜像
-- name: wings-infer
-  image: wings-infer:latest
+- name: wings-control
+  image: wings-control:latest
 
 # 模型 hostPath
 volumes:
@@ -73,7 +73,7 @@ kubectl kustomize k8s/overlays/vllm-ascend-distributed/
 kubectl apply -k k8s/overlays/vllm-ascend-distributed/
 
 # 观察 Pod 启动
-kubectl -n wings-infer get pods -w
+kubectl -n wings-control get pods -w
 ```
 
 预期输出:

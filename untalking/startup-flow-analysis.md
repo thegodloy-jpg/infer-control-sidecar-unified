@@ -17,7 +17,7 @@
 │  └──────┬───────┘                                                   │
 │         ↓ (完成后退出)                                               │
 │  ┌──────────────────────┐       ┌──────────────────────────────┐    │
-│  │  wings-infer 控制容器  │       │  engine 引擎容器              │    │
+│  │  wings-control 控制容器  │       │  engine 引擎容器              │    │
 │  │  (wings-control)      │       │  (vllm/sglang/mindie)        │    │
 │  │                       │       │                              │    │
 │  │  wings_start.sh       │       │  轮询等待                     │    │
@@ -76,9 +76,9 @@ cp -r /accel/* /accel-volume/
 
 ---
 
-### 2.2 Container 1: `wings-infer` 控制容器
+### 2.2 Container 1: `wings-control` 控制容器
 
-**镜像**: `wings-infer:latest`（基于 python:3.10-slim）
+**镜像**: `wings-control:latest`（基于 python:3.10-slim）
 
 **入口**: `ENTRYPOINT ["bash", "/app/wings_start.sh", ...]` → `python -m app.main`
 
@@ -417,8 +417,8 @@ request.params → 重建 LaunchArgs
 | 端口 | 容器 | 环境变量 | 功能 |
 |------|------|----------|------|
 | 17000 | engine | `ENGINE_PORT` | 推理引擎内部服务 |
-| 18000 | wings-infer (proxy) | `PORT` | OpenAI API 对外暴露 |
-| 19000 | wings-infer (health) | `HEALTH_PORT` | K8s 探针入口 |
+| 18000 | wings-control (proxy) | `PORT` | OpenAI API 对外暴露 |
+| 19000 | wings-control (health) | `HEALTH_PORT` | K8s 探针入口 |
 
 ### 8.3 Overlay 模板
 
@@ -449,7 +449,7 @@ request.params → 重建 LaunchArgs
                │ 完成退出
       ┌────────┴─────────────────────────────────┐
       ▼                                          ▼
-  wings-infer 容器启动                        engine 容器启动
+  wings-control 容器启动                        engine 容器启动
       │                                          │
   wings_start.sh                            轮询等待
       │                                     start_command.sh

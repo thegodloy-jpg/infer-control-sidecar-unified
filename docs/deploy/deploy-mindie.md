@@ -19,7 +19,7 @@ MindIE (Mind Inference Engine) 是华为昇腾原生推理引擎。与 vLLM/SGLa
 ```
 Node (Ascend 910B)
 ├── Pod (Deployment)
-│   ├── wings-infer (sidecar)
+│   ├── wings-control (sidecar)
 │   │   ├── :18000 Proxy
 │   │   └── :19000 Health
 │   └── engine (mindie)
@@ -56,7 +56,7 @@ ls /usr/local/Ascend/driver/    # 驱动目录
   value: "/models/your-model-name"
 
 # 镜像
-image: wings-infer:latest                    # Sidecar
+image: wings-control:latest                    # Sidecar
 image: your-mindie-image:latest              # MindIE 引擎镜像
 
 # 模型存储
@@ -109,7 +109,7 @@ securityContext:
 
 ```bash
 kubectl apply -k k8s/overlays/mindie-single/
-kubectl -n wings-infer get pods -w
+kubectl -n wings-control get pods -w
 
 # 健康检查
 curl http://<NODE_IP>:30190/health
@@ -134,7 +134,7 @@ curl http://<NODE_IP>:30180/v1/chat/completions \
 ```
 Node-0 (Ascend 910B)                      Node-1 (Ascend 910B)
 ├── Pod infer-0 (rank-0)                   ├── Pod infer-1 (rank-1)
-│   ├── wings-infer                        │   ├── wings-infer
+│   ├── wings-control                        │   ├── wings-control
 │   │   ├── :18000 Proxy                   │   │   └── :19000 Health
 │   │   └── :19000 Health                  │   └── engine
 │   └── engine                             │       ├── RANK=1, WORLD_SIZE=2
@@ -237,7 +237,7 @@ RANK_TABLE_FILE=/tmp/hccl_ranktable.json
 
 ```bash
 kubectl apply -k k8s/overlays/mindie-distributed/
-kubectl -n wings-infer get pods -w
+kubectl -n wings-control get pods -w
 
 # 等待就绪
 watch -n 5 'curl -s http://192.168.1.110:30190/health'
@@ -252,17 +252,17 @@ curl http://192.168.1.110:30180/v1/chat/completions \
 
 ```bash
 # 检查 HCCL 通信
-kubectl exec infer-0 -c engine -n wings-infer -- ss -tlnp | grep 27070
+kubectl exec infer-0 -c engine -n wings-control -- ss -tlnp | grep 27070
 
 # 检查 rank table
-kubectl exec infer-0 -c engine -n wings-infer -- cat /tmp/hccl_ranktable.json
+kubectl exec infer-0 -c engine -n wings-control -- cat /tmp/hccl_ranktable.json
 
 # 检查 config.json
-kubectl exec infer-0 -c engine -n wings-infer -- \
+kubectl exec infer-0 -c engine -n wings-control -- \
   cat /usr/local/Ascend/mindie/latest/mindie-service/conf/config.json | python3 -m json.tool
 
 # 查看 MindIE 日志
-kubectl logs infer-0 -c engine -n wings-infer --tail=100
+kubectl logs infer-0 -c engine -n wings-control --tail=100
 
 # 常见错误:
 # "Invalid DP number per node: 0"

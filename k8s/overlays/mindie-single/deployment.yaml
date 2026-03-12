@@ -1,6 +1,6 @@
 # Deployment: MindIE 单机推理（Ascend NPU）
 # 这个清单体现了 sidecar 架构的关键思想：
-# 1. `wings-infer` 容器负责生成启动脚本，并托管 proxy/health。
+# 1. `wings-control` 容器负责生成启动脚本，并托管 proxy/health。
 # 2. `engine` 容器阻塞等待共享卷中的 `start_command.sh`，然后真正拉起 MindIE。
 # 3. 两个容器通过 `shared-volume` 协作，而不是直接相互拉起进程。
 apiVersion: apps/v1
@@ -44,8 +44,8 @@ spec:
             type: Directory
 
       containers:
-        - name: wings-infer
-          image: wings-infer:latest                      # 需要替换为实际镜像
+        - name: wings-control
+          image: wings-control:latest                      # 需要替换为实际镜像
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 18000

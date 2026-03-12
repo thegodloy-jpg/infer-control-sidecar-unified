@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: infer
-  namespace: wings-infer
+  namespace: wings-control
 spec:
   serviceName: infer-hl
   replicas: 1
@@ -47,7 +47,7 @@ spec:
           type: Directory
       containers:
       # ---------------------------------------------------------------
-      # wings-infer: Sidecar 容器
+      # wings-control: Sidecar 容器
       # 引擎和模型参数已写死在 Dockerfile ENTRYPOINT 中:
       #   --engine vllm
       #   --model-name DeepSeek-R1-Distill-Qwen-1.5B
@@ -56,8 +56,8 @@ spec:
       #   --trust-remote-code
       # 此处仅保留 Dockerfile 中没有的运行时配置
       # ---------------------------------------------------------------
-      - name: wings-infer
-        image: wings-infer:entrypoint-zhanghui
+      - name: wings-control
+        image: wings-control:entrypoint-zhanghui
         imagePullPolicy: IfNotPresent
         env:
         - name: WINGS_SKIP_PID_CHECK

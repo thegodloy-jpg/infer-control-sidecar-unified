@@ -34,7 +34,7 @@
 | 镜像 | 版本 | 大小 | 说明 |
 |------|------|------|------|
 | `mindie:2.2.RC1` | 2.2.RC1 | ~22 GiB | MindIE 推理引擎 (openEuler24.03, py311) |
-| `wings-infer:zhanghui-ascend-st-unified` | 2026-03-09 build | ~448 MB | wings-infer 代理 sidecar |
+| `wings-control:zhanghui-ascend-st-unified` | 2026-03-09 build | ~448 MB | wings-control 代理 sidecar |
 
 ### k3s 配置 (两节点)
 
@@ -59,7 +59,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: infer-mindie
-  namespace: wings-infer
+  namespace: wings-control
 spec:
   replicas: 1
   template:
@@ -68,7 +68,7 @@ spec:
         kubernetes.io/hostname: "root"  # 固定到 .170
 ```
 
-### wings-infer sidecar 关键环境变量
+### wings-control sidecar 关键环境变量
 
 ```yaml
 WINGS_DEVICE: "ascend"
@@ -248,7 +248,7 @@ ConfigManager: Load Config from /usr/local/Ascend/mindie/2.2.RC1/mindie-service/
 }
 ```
 
-**POST /v1/chat/completions (经 wings-infer proxy port 18000)** ✅
+**POST /v1/chat/completions (经 wings-control proxy port 18000)** ✅
 ```json
 {
   "model": "DeepSeek-R1-Distill-Qwen-1.5B",
@@ -288,20 +288,20 @@ ConfigManager: Load Config from /usr/local/Ascend/mindie/2.2.RC1/mindie-service/
 
 ```bash
 # 查看 Pod 状态
-kubectl get pods -n wings-infer -o wide
+kubectl get pods -n wings-control -o wide
 
 # 查看 engine 日志
-kubectl logs -n wings-infer <pod-name> -c engine --tail=50
+kubectl logs -n wings-control <pod-name> -c engine --tail=50
 
 # 查看 sidecar 日志
-kubectl logs -n wings-infer <pod-name> -c wings-infer --tail=50
+kubectl logs -n wings-control <pod-name> -c wings-control --tail=50
 
 # 直连 MindIE 测试
-kubectl exec -n wings-infer <pod-name> -c wings-infer -- \
+kubectl exec -n wings-control <pod-name> -c wings-control -- \
   curl -s http://127.0.0.1:17000/v1/models
 
 # 经 proxy 测试推理
-kubectl exec -n wings-infer <pod-name> -c wings-infer -- \
+kubectl exec -n wings-control <pod-name> -c wings-control -- \
   curl -s -X POST http://127.0.0.1:18000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"DeepSeek-R1-Distill-Qwen-1.5B","messages":[{"role":"user","content":"hello"}],"max_tokens":16}'

@@ -433,7 +433,7 @@ dp_start_rank = "2" if node_rank != 0 else "0"
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│  wings-accel    │    │  wings-infer    │    │  engine         │
+│  wings-accel    │    │  wings-control    │    │  engine         │
 │  (initContainer)│    │  (sidecar)      │    │  (推理容器)      │
 │                 │    │                 │    │                 │
 │  1. 拷贝 /accel │───►│  2. 检测 ENABLE │    │                 │
@@ -468,7 +468,7 @@ initContainers:
 
 **Step 2: 检测使能环境变量**
 ```python
-# wings-infer 容器中
+# wings-control 容器中
 ENABLE_ACCEL = os.getenv("ENABLE_ACCEL", "false").lower() == "true"
 ```
 
@@ -514,13 +514,13 @@ cd /shared-volume && bash start_command.sh
 #### 三容器日志流
 
 ```
-wings-infer 容器:
+wings-control 容器:
 ├── wings_start.sh     ─→ exec tee ─→ stdout + /var/log/wings/wings_start.log
-├── main.py (launcher) ─→ stderr (继承) ─→ kubectl logs -c wings-infer
+├── main.py (launcher) ─→ stderr (继承) ─→ kubectl logs -c wings-control
 │   └── logger: wings-launcher
-├── ManagedProc("proxy")  ─→ stdout/stderr (继承) ─→ kubectl logs -c wings-infer
+├── ManagedProc("proxy")  ─→ stdout/stderr (继承) ─→ kubectl logs -c wings-control
 │   └── logger: wings-proxy
-└── ManagedProc("health") ─→ stdout/stderr (继承) ─→ kubectl logs -c wings-infer
+└── ManagedProc("health") ─→ stdout/stderr (继承) ─→ kubectl logs -c wings-control
     └── logger: wings-health
 
 engine 容器:
@@ -568,17 +568,17 @@ kubectl logs <pod> --all-containers
 kubectl logs <pod> --all-containers -f
 
 # 按容器查看
-kubectl logs <pod> -c wings-infer    # launcher + proxy + health
+kubectl logs <pod> -c wings-control    # launcher + proxy + health
 kubectl logs <pod> -c engine          # 推理引擎
 kubectl logs <pod> -c wings-accel     # Accel 初始化（仅历史）
 ```
 
 K8s 自动添加容器名前缀，结合统一的 `[%(name)s]` 组件标签，输出示例：
 ```
-[wings-infer] 2026-03-12 10:00:00 [INFO] [wings-launcher] start command written: /shared-volume/start_command.sh
-[wings-infer] 2026-03-12 10:00:01 [INFO] [wings-proxy] Reason-Proxy is starting on 0.0.0.0:18000
+[wings-control] 2026-03-12 10:00:00 [INFO] [wings-launcher] start command written: /shared-volume/start_command.sh
+[wings-control] 2026-03-12 10:00:01 [INFO] [wings-proxy] Reason-Proxy is starting on 0.0.0.0:18000
 [engine]      INFO 03-12 10:00:02 api_server.py:xxx] vLLM engine started
-[wings-infer] 2026-03-12 10:00:03 [INFO] [wings-health] Health monitor loop enabled
+[wings-control] 2026-03-12 10:00:03 [INFO] [wings-health] Health monitor loop enabled
 ```
 
 ### 重构改动清单

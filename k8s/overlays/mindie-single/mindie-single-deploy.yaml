@@ -1,11 +1,11 @@
 # mindie single-node deployment - customized for .110/.170 ST test
-# Namespace (reuse wings-infer) + Service + Deployment
+# Namespace (reuse wings-control) + Service + Deployment
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: mindie-api
-  namespace: wings-infer
+  namespace: wings-control
   labels:
     app.kubernetes.io/name: infer-mindie
 spec:
@@ -24,7 +24,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: infer-mindie
-  namespace: wings-infer
+  namespace: wings-control
 spec:
   replicas: 1
   selector:
@@ -76,9 +76,9 @@ spec:
             type: File
 
       containers:
-        # ---------- wings-infer sidecar ----------
-        - name: wings-infer
-          image: wings-infer:zhanghui-ascend-st-unified
+        # ---------- wings-control sidecar ----------
+        - name: wings-control
+          image: wings-control:zhanghui-ascend-st-unified
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 18000

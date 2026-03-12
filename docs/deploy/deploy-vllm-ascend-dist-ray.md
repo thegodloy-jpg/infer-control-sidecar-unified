@@ -14,7 +14,7 @@
  ┌── Node .110 (910b-47) ──────────────────────┐     ┌── Node .170 (root) ──────────────────────────┐
  │ Pod: infer-vllm-0 (rank 0, hostNetwork)      │     │ Pod: infer-vllm-1 (rank 1, hostNetwork)      │
  │                                               │     │                                               │
- │  ┌─ wings-infer ─────────────┐                │     │  ┌─ wings-infer ─────────────┐                │
+ │  ┌─ wings-control ─────────────┐                │     │  ┌─ wings-control ─────────────┐                │
  │  │ 生成 start_command.sh     │                │     │  │ 生成 start_command.sh     │                │
  │  │ proxy → 127.0.0.1:17000  │ :18100         │     │  │ (不启动 proxy)            │                │
  │  │ health check              │ :19100         │     │  └─────────────────────────────┘                │
@@ -38,7 +38,7 @@
 | Tensor Parallel | TP=2（跨 2 节点） |
 | 分布式框架 | Ray |
 | 引擎镜像 | `quay.io/ascend/vllm-ascend:v0.14.0rc1`（CANN 8.5.0, Python 3.11.14） |
-| Sidecar 镜像 | `wings-infer:zhanghui-ascend-st-dist` |
+| Sidecar 镜像 | `wings-control:zhanghui-ascend-st-dist` |
 | 模型 | DeepSeek-R1-Distill-Qwen-1.5B |
 | 模型路径 | `/mnt/cephfs/models/DeepSeek-R1-Distill-Qwen-1.5B` |
 | Namespace | `wings-verify-st-dist` |
@@ -50,8 +50,8 @@
 |------|------|------|
 | 6379 | Ray Head GCS | Ray cluster |
 | 17000 | vLLM OpenAI API | vllm serve |
-| 18100 | Wings 代理端口 | wings-infer proxy |
-| 19100 | 健康检查端口 | wings-infer health |
+| 18100 | Wings 代理端口 | wings-control proxy |
+| 19100 | 健康检查端口 | wings-control health |
 
 > 端口选择为 18100/19100 而非默认的 18000/19000，是为了避免与同机器上运行的 mindie pods 发生 hostNetwork 端口冲突。
 
@@ -110,13 +110,13 @@ docker exec k3s-verify-agent-ascend-zhanghui ctr -n k8s.io images import /tmp/vl
 
 ---
 
-## 3. 构建 wings-infer Sidecar 镜像
+## 3. 构建 wings-control Sidecar 镜像
 
 ### 3.1 目录结构
 
 ```
 infer-control-sidecar-main-st-dist/
-├── Dockerfile                                  # 构建 wings-infer 容器
+├── Dockerfile                                  # 构建 wings-control 容器
 ├── backend-dist-nv-20260303/
 │   ├── requirements.txt
 │   └── app/
@@ -138,23 +138,23 @@ infer-control-sidecar-main-st-dist/
 cd /data3/zhanghui/infer-control-sidecar-main-st-dist
 
 # 构建镜像
-docker build -f Dockerfile -t wings-infer:zhanghui-ascend-st-dist .
+docker build -f Dockerfile -t wings-control:zhanghui-ascend-st-dist .
 ```
 
 ### 3.3 导入到 k3s
 
 ```bash
 # 导出
-docker save wings-infer:zhanghui-ascend-st-dist -o /tmp/wings-infer-st-dist.tar
+docker save wings-control:zhanghui-ascend-st-dist -o /tmp/wings-control-st-dist.tar
 
 # 导入到 .110 k3s
-docker cp /tmp/wings-infer-st-dist.tar k3s-verify-server-ascend-zhanghui:/tmp/
-docker exec k3s-verify-server-ascend-zhanghui ctr -n k8s.io images import /tmp/wings-infer-st-dist.tar
+docker cp /tmp/wings-control-st-dist.tar k3s-verify-server-ascend-zhanghui:/tmp/
+docker exec k3s-verify-server-ascend-zhanghui ctr -n k8s.io images import /tmp/wings-control-st-dist.tar
 
 # 导入到 .170 k3s
-scp /tmp/wings-infer-st-dist.tar 7.6.52.170:/tmp/
-ssh 7.6.52.170 docker cp /tmp/wings-infer-st-dist.tar k3s-verify-agent-ascend-zhanghui:/tmp/
-ssh 7.6.52.170 docker exec k3s-verify-agent-ascend-zhanghui ctr -n k8s.io images import /tmp/wings-infer-st-dist.tar
+scp /tmp/wings-control-st-dist.tar 7.6.52.170:/tmp/
+ssh 7.6.52.170 docker cp /tmp/wings-control-st-dist.tar k3s-verify-agent-ascend-zhanghui:/tmp/
+ssh 7.6.52.170 docker exec k3s-verify-agent-ascend-zhanghui ctr -n k8s.io images import /tmp/wings-control-st-dist.tar
 ```
 
 ---
@@ -163,10 +163,10 @@ ssh 7.6.52.170 docker exec k3s-verify-agent-ascend-zhanghui ctr -n k8s.io images
 
 ### 4.1 Sidecar 工作流
 
-1. **wings-infer 容器**先启动，根据环境变量（`NODE_RANK`、`NNODES`、`ENGINE` 等）调用 `vllm_adapter.py` 的 `build_start_script()` 生成 `/shared-volume/start_command.sh`
+1. **wings-control 容器**先启动，根据环境变量（`NODE_RANK`、`NNODES`、`ENGINE` 等）调用 `vllm_adapter.py` 的 `build_start_script()` 生成 `/shared-volume/start_command.sh`
 2. **engine 容器**轮询 `/shared-volume/start_command.sh`，发现后执行
 3. rank-0 的 engine 启动 Ray Head + vLLM serve；rank-1 的 engine 启动 Ray Worker（`--block`）
-4. rank-0 的 wings-infer 启动反向代理（18100→17000）和健康检查（19100）
+4. rank-0 的 wings-control 启动反向代理（18100→17000）和健康检查（19100）
 
 ### 4.2 Triton Driver 补丁（关键）
 
@@ -219,7 +219,7 @@ class _NpuDummyDrv:
 
 ### 4.4 BACKEND_URL 配置
 
-wings-infer 的 `gateway.py` 默认将 `BACKEND_URL` 设为 `http://172.17.0.3:17000`（Docker bridge IP）。在 hostNetwork 模式下，该 IP 不可达。
+wings-control 的 `gateway.py` 默认将 `BACKEND_URL` 设为 `http://172.17.0.3:17000`（Docker bridge IP）。在 hostNetwork 模式下，该 IP 不可达。
 
 **解决**：StatefulSet 中显式设置 `BACKEND_URL=http://127.0.0.1:17000`。
 
@@ -280,7 +280,7 @@ docker exec k3s-verify-server-ascend-zhanghui kubectl -n wings-verify-st-dist lo
 
 预期启动序列：
 1. 两个 Pod 同时创建（Parallel 模式）
-2. wings-infer 容器生成 `start_command.sh`
+2. wings-control 容器生成 `start_command.sh`
 3. engine 容器执行 Triton 补丁 + CANN env source
 4. rank-0 启动 Ray Head，rank-1 连接 Ray Head
 5. rank-0 等待 2 个节点加入后启动 `vllm serve`
@@ -325,7 +325,7 @@ curl -s -w '\nHTTP_CODE: %{http_code}\n' http://7.6.52.110:19100/health | python
 **正常启动流程**：
 1. Pod 启动后，健康检查立即返回 **201**（`starting`），表示引擎正在初始化
 2. 经过 Ray 集群建立 + 模型加载（约 2-5 分钟），引擎 `/health` 开始返回 200
-3. wings-infer 健康监控循环检测到引擎就绪后，状态机转为 `ever_ready=true, status=1`
+3. wings-control 健康监控循环检测到引擎就绪后，状态机转为 `ever_ready=true, status=1`
 4. 健康检查切换为 **200**（`ready`），之后持续返回 200
 
 **响应体字段说明**：
@@ -376,7 +376,7 @@ curl -s http://7.6.52.110:18100/v1/chat/completions \
 
 ## 7. 环境变量参考
 
-### 7.1 wings-infer 容器
+### 7.1 wings-control 容器
 
 | 变量 | 值 | 说明 |
 |------|-----|------|
@@ -426,10 +426,10 @@ curl -s http://7.6.52.110:18100/v1/chat/completions \
 | `TypeError: 'SimpleNamespace' not subscriptable` | Triton 补丁返回格式错误 | `get_device_properties` 必须返回 dict |
 | `TypeError: argument of type 'int' is not iterable` | `target.arch` 是整数 | `arch` 必须是包含 `Ascend910B` 的字符串 |
 | `AssertionError: Failed to detect device properties` | NPU 核心数为 0 | `num_aicore` 和 `num_vectorcore` 必须大于 0 |
-| `Backend connect error: All connection attempts failed` | wings-infer 代理连不上引擎 | 检查 `BACKEND_URL=http://127.0.0.1:17000` |
+| `Backend connect error: All connection attempts failed` | wings-control 代理连不上引擎 | 检查 `BACKEND_URL=http://127.0.0.1:17000` |
 | `libmmpa.so` 版本冲突 | 宿主机整个 driver 目录挂载 | 仅挂载 `lib64/driver` 子目录 |
 | Ray Worker 找不到 Head | 网络或端口问题 | 检查 hostNetwork 模式、`NODE_IPS` 正确性 |
-| engine 容器不断重启 | `start_command.sh` 执行失败 | 查看 engine 容器日志和 wings-infer 日志 |
+| engine 容器不断重启 | `start_command.sh` 执行失败 | 查看 engine 容器日志和 wings-control 日志 |
 
 ### 8.2 常用调试命令
 
@@ -437,7 +437,7 @@ curl -s http://7.6.52.110:18100/v1/chat/completions \
 # 查看 Pod 状态和事件
 kubectl -n wings-verify-st-dist describe pod infer-vllm-0
 
-# 查看 wings-infer 生成的启动脚本
+# 查看 wings-control 生成的启动脚本
 kubectl -n wings-verify-st-dist exec infer-vllm-0 -c engine -- cat /shared-volume/start_command.sh
 
 # 查看 Triton 补丁是否生效

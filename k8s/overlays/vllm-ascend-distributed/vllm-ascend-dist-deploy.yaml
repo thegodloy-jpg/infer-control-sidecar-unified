@@ -4,14 +4,14 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: wings-infer
+  name: wings-control
 
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: infer-hl
-  namespace: wings-infer
+  namespace: wings-control
   labels:
     app.kubernetes.io/name: infer-vllm-ascend
 spec:
@@ -37,7 +37,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: infer-api
-  namespace: wings-infer
+  namespace: wings-control
   labels:
     app.kubernetes.io/name: infer-vllm-ascend
 spec:
@@ -57,7 +57,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: infer
-  namespace: wings-infer
+  namespace: wings-control
 spec:
   serviceName: infer-hl
   replicas: 2
@@ -111,9 +111,9 @@ spec:
             sizeLimit: 2Gi
 
       containers:
-        # ---------- wings-infer sidecar ----------
-        - name: wings-infer
-          image: wings-infer:zhanghui-ascend-st-unified
+        # ---------- wings-control sidecar ----------
+        - name: wings-control
+          image: wings-control:zhanghui-ascend-st-unified
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 18000
@@ -130,13 +130,13 @@ spec:
             - name: DISTRIBUTED
               value: "true"
             - name: MASTER_IP
-              value: "infer-0.infer-hl.wings-infer.svc.cluster.local"
+              value: "infer-0.infer-hl.wings-control.svc.cluster.local"
             - name: RANK_IP
               valueFrom:
                 fieldRef:
                   fieldPath: status.podIP
             - name: NODE_IPS
-              value: "infer-0.infer-hl.wings-infer.svc.cluster.local,infer-1.infer-hl.wings-infer.svc.cluster.local"
+              value: "infer-0.infer-hl.wings-control.svc.cluster.local,infer-1.infer-hl.wings-control.svc.cluster.local"
             - name: ENGINE
               value: "vllm_ascend"
             - name: DISTRIBUTED_EXECUTOR_BACKEND

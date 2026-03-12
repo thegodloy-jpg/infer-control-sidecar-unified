@@ -12,7 +12,7 @@
 ```
 Node
 ├── Pod (Deployment)
-│   ├── wings-infer (sidecar)
+│   ├── wings-control (sidecar)
 │   │   ├── :18000 Proxy
 │   │   └── :19000 Health
 │   └── engine (vllm)
@@ -39,7 +39,7 @@ volumes:
       path: /data/models                    # ← 节点上模型的实际路径
 
 # 镜像
-image: wings-infer:latest                   # ← Sidecar 镜像
+image: wings-control:latest                   # ← Sidecar 镜像
 image: vllm/vllm-openai:latest              # ← vLLM 引擎镜像
 
 # GPU 资源
@@ -70,7 +70,7 @@ env:
 
 ```bash
 kubectl apply -k k8s/overlays/vllm-single/
-kubectl -n wings-infer get pods -w
+kubectl -n wings-control get pods -w
 ```
 
 #### 4. 验证
@@ -99,7 +99,7 @@ curl http://<NODE_IP>:30180/v1/chat/completions \
 ```
 Node-0                              Node-1
 ├── Pod infer-0 (rank-0)            ├── Pod infer-1 (rank-1)
-│   ├── wings-infer                 │   ├── wings-infer
+│   ├── wings-control                 │   ├── wings-control
 │   │   ├── :18000 Proxy            │   │   └── :19000 Health
 │   │   └── :19000 Health           │   └── engine
 │   └── engine                      │       └── Ray Worker
@@ -169,7 +169,7 @@ volumes:
 
 ```bash
 kubectl apply -k k8s/overlays/vllm-distributed/
-kubectl -n wings-infer get pods -w
+kubectl -n wings-control get pods -w
 
 # 等待所有 Pod Ready
 # 仅通过 rank-0 的代理端口访问
@@ -182,9 +182,9 @@ curl http://<RANK0_NODE_IP>:30180/v1/chat/completions \
 
 ```bash
 # 检查 Ray 集群状态
-kubectl exec infer-0 -c engine -n wings-infer -- ray status
+kubectl exec infer-0 -c engine -n wings-control -- ray status
 
 # 检查节点间连通性
-kubectl exec infer-1 -c engine -n wings-infer -- \
+kubectl exec infer-1 -c engine -n wings-control -- \
   python3 -c "import socket; s=socket.socket(); s.settimeout(2); s.connect(('<HEAD_IP>',6379)); print('ok'); s.close()"
 ```

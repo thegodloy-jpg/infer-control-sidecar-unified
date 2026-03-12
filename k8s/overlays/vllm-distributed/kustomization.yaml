@@ -9,7 +9,7 @@ resources:
   - service.yaml
   - statefulset.yaml
 
-namespace: wings-infer
+namespace: wings-control
 
 commonLabels:
   app.kubernetes.io/name: infer-vllm

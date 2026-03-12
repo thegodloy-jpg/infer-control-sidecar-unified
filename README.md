@@ -1,4 +1,4 @@
-# Wings-Infer 统一推理控制 Sidecar
+# Wings-Control 统一推理控制 Sidecar
 
 > **引擎**: vLLM · vLLM-Ascend · SGLang · MindIE · Wings  
 > **硬件**: NVIDIA GPU · Ascend 910B NPU  
@@ -12,13 +12,13 @@
 ```bash
 # 1. 构建镜像
 cd infer-control-sidecar-unified/
-docker build -t wings-infer:latest wings-control/
+docker build -t wings-control:latest wings-control/
 
 # 2. 单容器测试（仅生成启动脚本）
 docker run --rm -it \
   -e WINGS_SKIP_PID_CHECK=true \
   -p 18000:18000 -p 19000:19000 \
-  wings-infer:latest \
+  wings-control:latest \
   --model-name test-model --model-path /weights
 
 # 3. 验证
@@ -35,7 +35,7 @@ curl http://localhost:19000/health
 ┌─ K8s Pod ──────────────────────────────────────────────┐
 │  (可选) initContainer: accel-init → /accel-volume/     │
 │                                                         │
-│  wings-infer (Sidecar)          engine 容器             │
+│  wings-control (Sidecar)          engine 容器             │
 │  ┌────────────────────┐   ┌──────────────────────┐     │
 │  │ wings_start.sh     │   │ 等待 start_command.sh│     │
 │  │  → python -m app.main │ │  → bash 执行         │     │
@@ -102,8 +102,8 @@ infer-control-sidecar-unified/
 
 ```yaml
 services:
-  wings-infer:
-    image: wings-infer:latest
+  wings-control:
+    image: wings-control:latest
     ports: ["18000:18000", "19000:19000"]
     environment:
       ENGINE: vllm
@@ -138,13 +138,13 @@ kubectl apply -k k8s/overlays/vllm-distributed/
 ```bash
 # 单机
 docker run --runtime nvidia -p 18000:18000 -p 19000:19000 \
-  -v /models:/models:ro wings-infer:latest \
+  -v /models:/models:ro wings-control:latest \
   --model-name Qwen2-7B --model-path /models/Qwen2-7B --engine vllm
 
 # 分布式 rank-0
 docker run --network host -e DISTRIBUTED=true -e NNODES=2 \
   -e NODE_RANK=0 -e HEAD_NODE_ADDR=192.168.1.100 \
-  wings-infer:latest --model-name DeepSeek-R1 --model-path /models/DeepSeek-R1 --distributed
+  wings-control:latest --model-name DeepSeek-R1 --model-path /models/DeepSeek-R1 --distributed
 ```
 
 ---
@@ -296,8 +296,8 @@ volumes:
   - name: shared-volume
     emptyDir: {}
 containers:
-  - name: wings-infer
-    image: wings-infer:latest
+  - name: wings-control
+    image: wings-control:latest
     args: ["--model-name", "DeepSeek-R1", "--engine", "vllm"]
     env: [{name: WINGS_SKIP_PID_CHECK, value: "true"}]
     volumeMounts: [{name: shared-volume, mountPath: /shared-volume}]
@@ -316,14 +316,14 @@ containers:
 | health 持续 201 | 引擎启动慢，增大 failureThreshold |
 | health 502 | 引擎启动失败，查 engine 容器日志 |
 | proxy 502 | 确认 BACKEND_URL 和 ENGINE_PORT |
-| start_command.sh 未生成 | 查 wings-infer 日志 |
+| start_command.sh 未生成 | 查 wings-control 日志 |
 | 分布式卡住 | 检查 HEAD_NODE_ADDR 可达性 |
 | Ascend 用了 vllm | 设置 WINGS_DEVICE=ascend |
 
 ```bash
 # 常用调试
-kubectl exec -it deploy/infer -c wings-infer -- cat /shared-volume/start_command.sh
-kubectl exec -it deploy/infer -c wings-infer -- curl localhost:19000/health/detail
+kubectl exec -it deploy/infer -c wings-control -- cat /shared-volume/start_command.sh
+kubectl exec -it deploy/infer -c wings-control -- curl localhost:19000/health/detail
 ```
 
 详情: [docs/troubleshooting.md](docs/troubleshooting.md)

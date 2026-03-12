@@ -18,7 +18,7 @@ vLLM-Ascend 是 vLLM 的昇腾 NPU 适配版本，使用 `torch_npu` 替代 CUDA
 ```
 Node (Ascend 910B)
 ├── Pod (Deployment)
-│   ├── wings-infer (sidecar)
+│   ├── wings-control (sidecar)
 │   │   ├── :18000 Proxy
 │   │   └── :19000 Health
 │   └── engine (vllm-ascend)
@@ -85,7 +85,7 @@ exec python3 -m vllm.entrypoints.openai.api_server --model ... --host 0.0.0.0 --
 
 ```bash
 kubectl apply -k k8s/overlays/vllm-ascend-single/
-kubectl -n wings-infer get pods -w
+kubectl -n wings-control get pods -w
 
 # 健康检查
 curl http://<NODE_IP>:30190/health
@@ -110,7 +110,7 @@ curl http://<NODE_IP>:30180/v1/chat/completions \
 ```
 Node-0 (Ascend 910B)                      Node-1 (Ascend 910B)
 ├── Pod infer-0 (rank-0)                   ├── Pod infer-1 (rank-1)
-│   ├── wings-infer                        │   ├── wings-infer
+│   ├── wings-control                        │   ├── wings-control
 │   │   ├── :18000 Proxy                   │   │   └── :19000 Health
 │   │   └── :19000 Health                  │   └── engine
 │   └── engine                             │       ├── Triton NPU 补丁 ✓
@@ -195,7 +195,7 @@ env:
 
 ```bash
 kubectl apply -k k8s/overlays/vllm-ascend-distributed/
-kubectl -n wings-infer get pods -w
+kubectl -n wings-control get pods -w
 
 # 预期: 2 Pod × 2 容器全部 Running
 NAME      READY   STATUS    RESTARTS   AGE
@@ -219,7 +219,7 @@ curl http://7.6.52.110:30180/v1/chat/completions \
   }'
 
 # Ray 集群状态
-kubectl exec infer-0 -c engine -n wings-infer -- ray status
+kubectl exec infer-0 -c engine -n wings-control -- ray status
 ```
 
 ### 故障排查

@@ -5,7 +5,7 @@
 > **GPU**: NVIDIA A100-PCIE-40GB (编号 0, 40960 MiB)  
 > **模型**: DeepSeek-R1-Distill-Qwen-1.5B  
 > **引擎**: vLLM v0.13.0  
-> **镜像**: wings-infer:entrypoint-zhanghui  
+> **镜像**: wings-control:entrypoint-zhanghui  
 
 ---
 
@@ -15,7 +15,7 @@
 ┌─────────────────── Pod infer-0 ───────────────────┐
 │                                                    │
 │  ┌──────────────────┐   ┌───────────────────────┐  │
-│  │  wings-infer      │   │  engine (vllm)         │  │
+│  │  wings-control      │   │  engine (vllm)         │  │
 │  │  (Sidecar 控制)   │   │  (推理引擎)            │  │
 │  │                    │   │                        │  │
 │  │  :18000 proxy     │──▶│  :17000 vLLM API       │  │
@@ -32,7 +32,7 @@
 └────────────────────────────────────────────────────┘
 ```
 
-**核心设计**: wings-infer sidecar 根据 Dockerfile ENTRYPOINT 中的参数自动生成 `start_command.sh`，engine 容器轮询等待该脚本出现后执行。两个容器通过共享卷协调启动。
+**核心设计**: wings-control sidecar 根据 Dockerfile ENTRYPOINT 中的参数自动生成 `start_command.sh`，engine 容器轮询等待该脚本出现后执行。两个容器通过共享卷协调启动。
 
 ---
 
@@ -65,7 +65,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: infer
-  namespace: wings-infer
+  namespace: wings-control
 spec:
   serviceName: infer-hl
   replicas: 1
@@ -95,11 +95,11 @@ spec:
         hostPath: { path: /mnt/nvidia-libs, type: Directory }
 
       containers:
-      # --- wings-infer: Sidecar ---
+      # --- wings-control: Sidecar ---
       # 引擎参数已在 Dockerfile ENTRYPOINT 中声明
       # 此处仅保留运行时配置
-      - name: wings-infer
-        image: wings-infer:entrypoint-zhanghui
+      - name: wings-control
+        image: wings-control:entrypoint-zhanghui
         env:
         - name: WINGS_SKIP_PID_CHECK
           value: "true"
@@ -174,7 +174,7 @@ docker exec k3s-verify-server-zhanghui kubectl apply -f /tmp/statefulset-a100.ya
 ### 步骤 4: 确认 Pod 状态
 
 ```bash
-kubectl get pods -n wings-infer -o wide
+kubectl get pods -n wings-control -o wide
 ```
 
 **输出**:
@@ -183,10 +183,10 @@ NAME      READY   STATUS    RESTARTS   AGE   IP           NODE
 infer-0   2/2     Running   0          6s    172.17.0.3   ca4109381399
 ```
 
-### 步骤 5: 检查 wings-infer (Sidecar) 日志
+### 步骤 5: 检查 wings-control (Sidecar) 日志
 
 ```bash
-kubectl logs infer-0 -n wings-infer -c wings-infer --tail=30
+kubectl logs infer-0 -n wings-control -c wings-control --tail=30
 ```
 
 **关键输出**:
@@ -207,7 +207,7 @@ Uvicorn running on http://0.0.0.0:19000
 ### 步骤 6: 检查 engine 容器日志
 
 ```bash
-kubectl logs infer-0 -n wings-infer -c engine --tail=30
+kubectl logs infer-0 -n wings-control -c engine --tail=30
 ```
 
 **关键输出**:
@@ -232,7 +232,7 @@ GET /health → 200 OK  (健康检查持续通过)
 ### 步骤 7: 展示共享卷内容
 
 ```bash
-kubectl exec infer-0 -n wings-infer -c wings-infer -- ls -la /shared-volume/
+kubectl exec infer-0 -n wings-control -c wings-control -- ls -la /shared-volume/
 ```
 
 **输出**:
@@ -243,7 +243,7 @@ drwxr-xr-x 1 root root 4096 Mar 10 06:32 ..
 -rw------- 1 root root  468 Mar 10 06:32 start_command.sh
 ```
 
-**start_command.sh 内容** (由 wings-infer sidecar 自动生成):
+**start_command.sh 内容** (由 wings-control sidecar 自动生成):
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail

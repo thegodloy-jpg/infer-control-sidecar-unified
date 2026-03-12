@@ -65,9 +65,9 @@ spec:
             sizeLimit: 2Gi
 
       containers:
-        # ---------- wings-infer sidecar ----------
-        - name: wings-infer
-          image: wings-infer:latest                      # CUSTOMIZE: sidecar 镜像
+        # ---------- wings-control sidecar ----------
+        - name: wings-control
+          image: wings-control:latest                      # CUSTOMIZE: sidecar 镜像
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 18000

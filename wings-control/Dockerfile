@@ -1,9 +1,9 @@
 # =============================================================================
-# Wings-Infer 统一控制容器 Dockerfile
+# Wings-Control 统一控制容器 Dockerfile
 # 支持引擎: vllm, vllm_ascend, sglang, mindie
 # 支持模式: 单机 / 分布式
 # 构建命令:
-#   docker build -t wings-infer:latest wings-control/
+#   docker build -t wings-control:latest wings-control/
 #
 # 构建产物:
 #   - /app/app/*: Sidecar 后端 Python 代码

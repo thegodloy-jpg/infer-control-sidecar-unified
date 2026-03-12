@@ -34,7 +34,7 @@ Sidecar 架构说明：
     │                      K8s Pod                                │
     │  ┌─────────────────────┐    ┌─────────────────────────────┐ │
     │  │   Launcher 容器     │    │      Engine 容器            │ │
-    │  │  (wings-infer)      │    │  (vllm/sglang/mindie)       │ │
+    │  │  (wings-control)      │    │  (vllm/sglang/mindie)       │ │
     │  │                     │    │                             │ │
     │  │  main.py ───────────┼────┼──> start_command.sh         │ │
     │  │       ↓             │    │         ↓                   │ │

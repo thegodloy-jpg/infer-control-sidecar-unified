@@ -13,7 +13,7 @@ Wings-Accel 是一个**可选的加速增强组件**，通过 K8s initContainer 
 │       wings-accel:latest                                            │
 │       cp -r /accel/* → /accel-volume/                               │
 │                                                                     │
-│  [2] wings-infer (sidecar)                                          │
+│  [2] wings-control (sidecar)                                          │
 │       ENABLE_ACCEL=true 时：                                        │
 │       → 向 start_command.sh 注入                                    │
 │         export WINGS_ENGINE_PATCH_OPTIONS='{"vllm":["test_patch"]}' │
@@ -72,7 +72,7 @@ docker push your-registry/wings-accel:latest
 在 deployment/statefulset YAML 中，确认以下配置：
 
 ```yaml
-# wings-infer 容器
+# wings-control 容器
 env:
   - name: ENABLE_ACCEL
     value: "true"
@@ -93,7 +93,7 @@ env:
     value: "false"
 ```
 
-> **注意**：`wings-infer` 和 `engine` 容器的 `ENABLE_ACCEL` 值应保持一致。
+> **注意**：`wings-control` 和 `engine` 容器的 `ENABLE_ACCEL` 值应保持一致。
 
 ## 适用引擎
 
@@ -163,7 +163,7 @@ cd /shared-volume && bash start_command.sh
 
 ## Python Sidecar 层注入逻辑
 
-除了 K8s 层面的 whl 包安装，wings-infer sidecar 还会在 Python 层面向 `start_command.sh` 注入 `WINGS_ENGINE_PATCH_OPTIONS` 环境变量，告诉 `wings_engine_patch` 包要激活哪些补丁功能。
+除了 K8s 层面的 whl 包安装，wings-control sidecar 还会在 Python 层面向 `start_command.sh` 注入 `WINGS_ENGINE_PATCH_OPTIONS` 环境变量，告诉 `wings_engine_patch` 包要激活哪些补丁功能。
 
 ### 工作机制
 
@@ -190,7 +190,7 @@ exec python3 -m vllm.entrypoints.openai.api_server ...
 通过设置 `WINGS_ENGINE_PATCH_OPTIONS` 环境变量可覆盖自动生成的值：
 
 ```yaml
-# wings-infer 容器环境变量
+# wings-control 容器环境变量
 env:
   - name: ENABLE_ACCEL
     value: "true"
@@ -220,10 +220,10 @@ vi k8s/overlays/vllm-single/deployment.yaml
 kubectl apply -k k8s/overlays/vllm-single/
 
 # 4. 查看 Pod 状态 (应看到 init:0/1 → Running)
-kubectl -n wings-infer get pods -w
+kubectl -n wings-control get pods -w
 
 # 5. 检查 accel 安装日志
-kubectl -n wings-infer logs <pod-name> -c engine | grep -i accel
+kubectl -n wings-control logs <pod-name> -c engine | grep -i accel
 ```
 
 预期日志输出：
@@ -239,7 +239,7 @@ kubectl -n wings-infer logs <pod-name> -c engine | grep -i accel
 
 ```bash
 # 查看 initContainer 日志
-kubectl -n wings-infer logs <pod-name> -c accel-init
+kubectl -n wings-control logs <pod-name> -c accel-init
 
 # 常见原因：
 # - 镜像拉取失败 → 检查 imagePullPolicy 和仓库配置
@@ -250,7 +250,7 @@ kubectl -n wings-infer logs <pod-name> -c accel-init
 
 ```bash
 # 查看 engine 容器日志
-kubectl -n wings-infer logs <pod-name> -c engine
+kubectl -n wings-control logs <pod-name> -c engine
 
 # 常见原因：
 # - whl 包与 Python 版本不兼容 → 检查 supported_features.json
@@ -269,14 +269,14 @@ kubectl -n wings-infer logs <pod-name> -c engine
 
 ```bash
 # 查看生成的启动脚本
-kubectl -n wings-infer exec <pod-name> -c wings-infer -- cat /shared-volume/start_command.sh
+kubectl -n wings-control exec <pod-name> -c wings-control -- cat /shared-volume/start_command.sh
 
 # 应包含类似内容:
 # export WINGS_ENGINE_PATCH_OPTIONS='{"vllm": ["test_patch"]}'
 ```
 
 如果缺失，检查：
-- wings-infer 容器的 `ENABLE_ACCEL` 环境变量是否为 `"true"`
+- wings-control 容器的 `ENABLE_ACCEL` 环境变量是否为 `"true"`
 - sidecar 日志中是否有 `Accel enabled: injecting WINGS_ENGINE_PATCH_OPTIONS` 日志
 
 ## 自定义 Accel 包
