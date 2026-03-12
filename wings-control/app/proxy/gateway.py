@@ -104,7 +104,7 @@ configure_worker_logging()
 # =============================================================================
 
 # 单请求体大小上限，超出会在读取阶段被拒绝，避免代理进程被大包压垮。
-MAX_REQUEST_BYTES = int(os.getenv("MAX_REQUEST_BYTES", str(2 * 1024 * 1024)))
+MAX_REQUEST_BYTES = int(os.getenv("MAX_REQUEST_BYTES", str(20 * 1024 * 1024)))
 
 # 由 launcher 通过 uvicorn 启动的 FastAPI 应用。
 app = FastAPI()

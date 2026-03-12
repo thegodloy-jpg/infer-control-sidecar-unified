@@ -118,9 +118,12 @@ class ManagedProc:
     """
 
     name: str           # 进程名称标识，用于日志打印
-    argv: list[str]     # 命令行参数列表 [python, -m, uvicorn, ...]
+    argv: list[str]     # 命令行参数列表[python, -m, uvicorn, ...]
     env: dict[str, str] # 环境变量字典，继承自父进程并添加服务特定变量
     proc: subprocess.Popen | None = None  # 实际的子进程句柄
+    _crash_count: int = 0          # 连续崩溃计数器
+    _last_start_ts: float = 0.0    # 上次启动时间戳
+    _backoff_until: float = 0.0    # 退避期截止时间戳
 
 
 def _start(proc: ManagedProc) -> None:
@@ -185,23 +188,24 @@ def _stop(proc: ManagedProc) -> None:
 
 
 def _restart_if_needed(proc: ManagedProc) -> None:
-    """检查进程状态，必要时自动重启（守护进程模式）。
+    """检查进程状态，必要时自动重启（带崩溃循环保护）。
 
     该函数在主循环中周期性调用，实现子进程的自动恢复：
     - 进程从未启动 → 立即启动
     - 进程正在运行 → 不做操作
-    - 进程已退出   → 记录退出码并重启
+    - 进程已退出   → 记录退出码并重启（带指数退避）
 
-    Args:
-        proc: 待检查的托管进程对象
-
-    设计说明:
-        - 无条件重启策略：任何退出（包括正常退出 code=0）都会触发重启
-        - 适用于需要持续运行的服务（proxy/health）
-        - 不实现退避策略，依赖上层 PROCESS_POLL_SEC 控制重启频率
+    崩溃循环保护策略：
+    - 进程在 30 秒内退出视为崩溃，连续崩溃计数器递增
+    - 连续崩溃时指数退避：等待 min(2^crash_count, 60) 秒后再重启
+    - 进程稳定运行超过 30 秒后退出，崩溃计数器重置
     """
+    CRASH_THRESHOLD_SEC = 30  # 小于此时间视为崩溃
+    MAX_BACKOFF_SEC = 60      # 最大退避时间
+
     if not proc.proc:
         # 进程从未启动，直接启动
+        proc._last_start_ts = time.time()
         _start(proc)
         return
 
@@ -210,8 +214,27 @@ def _restart_if_needed(proc: ManagedProc) -> None:
     if code is None:
         return  # 进程正常运行，无需操作
 
-    # 进程已退出，记录并重启
-    logger.warning("[launcher] %s 以退出码 %s 退出，正在重启...", proc.name, code)
+    # 进程已退出，判断是否为崩溃（启动后短时间内退出）
+    uptime = time.time() - proc._last_start_ts if proc._last_start_ts else 0
+    if uptime < CRASH_THRESHOLD_SEC:
+        proc._crash_count += 1
+        backoff = min(2 ** proc._crash_count, MAX_BACKOFF_SEC)
+        proc._backoff_until = time.time() + backoff
+        logger.warning(
+            "[launcher] %s 以退出码 %s 退出（运行 %0.1fs），"
+            "连续崩溃 %d 次，等待 %ds 后重启...",
+            proc.name, code, uptime, proc._crash_count, backoff,
+        )
+    else:
+        # 稳定运行后退出，重置崩溃计数器
+        proc._crash_count = 0
+        logger.warning("[launcher] %s 以退出码 %s 退出，正在重启...", proc.name, code)
+
+    # 检查是否在退避期内
+    if time.time() < proc._backoff_until:
+        return  # 还在退避等待期，跳过本轮
+
+    proc._last_start_ts = time.time()
     _start(proc)
 
 
@@ -439,6 +462,8 @@ def _wait_and_distribute_to_workers(
     max_wait_sec = 300
     poll_interval = 5
     start_time = time.time()
+    max_retries = 2  # 总共尝试 max_retries + 1 轮（包含首次）
+    retry_count = 0
 
     def _resolve(host: str) -> str:
         """将 DNS 名称解析为 IP 地址；已是 IP 或解析失败时原样返回。
@@ -469,12 +494,44 @@ def _wait_and_distribute_to_workers(
             logger.debug("Waiting for workers to register: %s", exc)
         time.sleep(poll_interval)
     else:
-        logger.error(
-            "Timed out (%ds) waiting for worker registration. Expected: %s",
-            max_wait_sec,
-            worker_ips,
-        )
-        return
+        retry_count += 1
+        if retry_count <= max_retries:
+            logger.warning(
+                "Timed out (%ds) waiting for worker registration (attempt %d/%d). "
+                "Expected: %s. Retrying...",
+                max_wait_sec, retry_count, max_retries + 1, worker_ips,
+            )
+            start_time = time.time()
+            # 重新进入等待循环（继续执行下方的分发逻辑前会再次循环检查）
+            while time.time() - start_time < max_wait_sec:
+                try:
+                    resp = _requests.get(f"{master_url}/api/nodes", timeout=10)
+                    resp.raise_for_status()
+                    registered = {n["ip"] for n in resp.json().get("nodes", [])}
+                    resolved_workers = {_resolve(ip) for ip in worker_ips}
+                    if resolved_workers.issubset(registered):
+                        logger.info(
+                            "All %d worker nodes registered (retry %d)",
+                            len(worker_ips), retry_count,
+                        )
+                        break
+                except Exception as exc:
+                    logger.debug("Waiting for workers to register: %s", exc)
+                time.sleep(poll_interval)
+            else:
+                logger.error(
+                    "Timed out (%ds) waiting for worker registration after %d retries. "
+                    "Expected: %s",
+                    max_wait_sec * (retry_count + 1), retry_count, worker_ips,
+                )
+                return
+        else:
+            logger.error(
+                "Timed out (%ds) waiting for worker registration. Expected: %s",
+                max_wait_sec,
+                worker_ips,
+            )
+            return
 
     # ---- 向每个 Worker 分发启动指令 ----
     nnodes = len(node_ips)

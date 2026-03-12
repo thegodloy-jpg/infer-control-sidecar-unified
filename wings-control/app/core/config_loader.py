@@ -36,6 +36,7 @@ from app.utils.env_utils import get_master_ip, get_node_ips, get_lmcache_env, ge
 from app.utils.file_utils import check_torch_dtype, get_directory_size, check_permission_640, load_json_config
 from app.utils.model_utils import ModelIdentifier, is_qwen3_32b_nvfp4, is_deepseek_series_fp8, is_qwen3_series_fp8
 from app.utils.mmgm_utils import autodiscover_hunyuan_paths
+from app.utils.device_utils import check_pcie_cards
 
 logger = logging.getLogger(__name__)
 
@@ -798,6 +799,21 @@ def _merge_sglang_params(params, ctx, engine_cmd_parameter):
     if "enable_ep_moe" in params:
         params.pop("enable_ep_moe")
         params['ep_size'] = params['tp_size']
+
+    # 处理 tool parser 参数（function call 支持）
+    engine_config = params
+    if "enable_tool_choice" in engine_config:
+        if "tool_call_parser" in engine_config:
+            logger.info("Function Call enabled for SGLang")
+        else:
+            logger.warning("enable_tool_choice is set but tool_call_parser is not set, "
+                           "this model does not support Function Call")
+        engine_config.pop("enable_tool_choice")
+    else:
+        if "tool_call_parser" in engine_config:
+            engine_config.pop("tool_call_parser")
+        logger.info("Function Call not enabled for SGLang")
+
     return params
 
 
@@ -812,6 +828,15 @@ def _adjust_tensor_parallelism(params, device_count, tp_key, if_distributed=Fals
     if default_tp:
         return
     if not if_distributed:
+        # 300I A2 标卡为 4 张或 8 张时，强制 TP=4（PCIe 拓扑限制）
+        try:
+            is_pcie_300i, _ = check_pcie_cards("d802", "4000")
+            if is_pcie_300i and int(device_count) in [4, 8]:
+                params[tp_key] = 4
+                logger.info("Detected 300I A2 PCIe card with %s devices, set TP=4", device_count)
+                return
+        except Exception:
+            pass  # Sidecar 环境可能无法访问 PCIe，忽略
         if default_tp is not None and default_tp != device_count:
             logger.warning(
                 "Detected %s devices in current environment, "
@@ -1056,6 +1081,10 @@ def _auto_select_engine(hardware_env: Dict[str, Any],
     os.environ['WINGS_ENGINE'] = engine
     logger.info("Set global environment variable WINGS_ENGINE=%s", engine)
 
+    # 配置推测解码和稀疏 KV 环境变量
+    _set_spec_decoding_config(cmd_known_params)
+    _set_sparse_config(cmd_known_params)
+
     # 在昇腾设备上将 vllm 自动升级为 vllm_ascend
     if engine == "vllm":
         _handle_ascend_vllm(device_type, cmd_known_params)
@@ -1188,6 +1217,9 @@ def _select_ascend_engine(device_name: str, model_info) -> str:
         logger.warning("soft fp8 is enabled, "
                        "automatically switched to VLLM_Ascend engine")
         return "vllm_ascend"
+    elif model_architecture in ["DeepseekV32ForCausalLM", "Qwen3NextForCausalLM"]:
+        logger.info("Model architecture %s requires vllm_ascend, automatically selected", model_architecture)
+        return "vllm_ascend"
     elif is_wings_supported:
         logger.info("No engine specified, automatically selected engine: mindie")
         return 'mindie'
@@ -1213,8 +1245,13 @@ def _validate_user_engine(engine: str, device_name: str, gpu_usage_mode: str, mo
         ValueError: 引擎名不在支持列表中时抛出
     """
     #
-    if engine not in ['mindie', 'vllm', 'vllm_ascend', 'sglang', 'wings']:
-        raise ValueError(f"The engine {engine} is not supported yet!Please change to 'mindie', 'vllm' or 'sglang'")
+    if engine not in ['mindie', 'vllm', 'vllm_ascend', 'sglang', 'wings', 'xllm', 'transformers']:
+        raise ValueError(f"The engine {engine} is not supported yet!Please change to 'mindie', 'vllm', 'sglang', 'xllm' or 'wings'")
+
+    # transformers 别名映射为 wings
+    if engine == "transformers":
+        logger.info("Engine 'transformers' is an alias for 'wings', using wings engine")
+        engine = "wings"
 
     vllm = 'vllm'
     model_type = model_info.identify_model_type()
@@ -1310,7 +1347,7 @@ def _handle_vllm_distributed(distributed_config: Dict[str, Any], cmd_params: Dic
     vllm_distributed_port = get_vllm_distributed_port()
     pd_role = get_pd_role_env()
     model_architecture = model_info.model_architecture
-    is_ascend_deepseek = (model_architecture == "DeepseekV3ForCausalLM" \
+    is_ascend_deepseek = (model_architecture in ["DeepseekV3ForCausalLM", "DeepseekV32ForCausalLM"] \
                           and cmd_params.get("engine") == 'vllm_ascend')
 
     if pd_role in ['P', 'D'] or is_ascend_deepseek:

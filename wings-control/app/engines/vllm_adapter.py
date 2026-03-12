@@ -268,12 +268,12 @@ def _build_pd_role_env_commands(engine: str, current_ip: str, network_interface:
                 f"export GLOO_SOCKET_IFNAME={network_interface}",
                 f"export TP_SOCKET_IFNAME={network_interface}",
                 f"export HCCL_SOCKET_IFNAME={network_interface}",
-                f"export OMP_PROC_BIND=false",
+                "export OMP_PROC_BIND=false",
                 f"export OMP_NUM_THREADS={os.getenv('OMP_NUM_THREADS', '100')}",
-                f"export VLLM_USE_V1=1",
-                f"export LCCL_DETERMINISTIC=1",
-                f"export HCCL_DETERMINISTIC=true",
-                f"export CLOSE_MATMUL_K_SHIFT=1",
+                "export VLLM_USE_V1=1",
+                "export LCCL_DETERMINISTIC=1",
+                "export HCCL_DETERMINISTIC=true",
+                "export CLOSE_MATMUL_K_SHIFT=1",
                 f"export VLLM_LLMDD_RPC_PORT={rpc_port}",
                 f"export PYTORCH_NPU_ALLOC_CONF=max_split_size_mb:{os.getenv('NPU_MAX_SPLIT_SIZE_MB', '256')}"
             ])
@@ -288,9 +288,8 @@ def _build_distributed_env_commands(params: Dict[str, Any], current_ip: str,
     _build_pd_role_env_commands 和 build_start_script 内部的
     Ray 初始化块中处理。
 
-    保留此存根作为未来扩展点，可用于：
-    - 添加特定引擎的分布式环境配置
-    - 支持新的分布式后端
+    根据 distributed_executor_backend（ray / dp_deployment）和引擎类型
+    （vllm / vllm_ascend）设置对应的网络通信环境变量。
 
     Args:
         params:            参数字典
@@ -299,9 +298,54 @@ def _build_distributed_env_commands(params: Dict[str, Any], current_ip: str,
         engine:            引擎类型
 
     Returns:
-        List[str]: 环境变量设置命令列表（当前为空）
+        List[str]: 环境变量设置命令列表
     """
-    return []
+    env_commands = []
+    if params.get("distributed", False):
+        backend = params.get("distributed_executor_backend")
+        if backend == "ray":
+            if engine == "vllm":
+                env_commands.extend([
+                    f"export VLLM_HOST_IP={shlex.quote(current_ip)}",
+                    f"export GLOO_SOCKET_IFNAME={shlex.quote(network_interface)}",
+                    f"export TP_SOCKET_IFNAME={shlex.quote(network_interface)}",
+                    f"export NCCL_SOCKET_IFNAME={shlex.quote(network_interface)}",
+                ])
+            elif engine == "vllm_ascend":
+                env_commands.extend([
+                    f"export HCCL_IF_IP={shlex.quote(current_ip)}",
+                    f"export GLOO_SOCKET_IFNAME={shlex.quote(network_interface)}",
+                    f"export TP_SOCKET_IFNAME={shlex.quote(network_interface)}",
+                    "export RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES=1",
+                    "export ASCEND_PROCESS_LOG_PATH=/tmp/ray_vllm010",
+                ])
+        elif backend == "dp_deployment":
+            if engine == "vllm":
+                env_commands.extend([
+                    f"export GLOO_SOCKET_IFNAME={shlex.quote(network_interface)}",
+                    f"export TP_SOCKET_IFNAME={shlex.quote(network_interface)}",
+                    f"export NCCL_SOCKET_IFNAME={shlex.quote(network_interface)}",
+                    f"export VLLM_NIXL_SIDE_CHANNEL_PORT={params.get('nixl_port', '')}",
+                    "export NCCL_IB_DISABLE=0",
+                    "export NCCL_CUMEM_ENABLE=0",
+                    "export NCCL_NET_GDR_LEVEL=SYS",
+                ])
+            elif engine == "vllm_ascend":
+                env_commands.extend([
+                    f"export HCCL_IF_IP={shlex.quote(current_ip)}",
+                    f"export GLOO_SOCKET_IFNAME={shlex.quote(network_interface)}",
+                    f"export TP_SOCKET_IFNAME={shlex.quote(network_interface)}",
+                    f"export HCCL_SOCKET_IFNAME={shlex.quote(network_interface)}",
+                    "export OMP_PROC_BIND=false",
+                    f"export OMP_NUM_THREADS={os.getenv('OMP_NUM_THREADS', '10')}",
+                    "export HCCL_BUFFSIZE=1024",
+                    "export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True",
+                    "export ASCEND_CUSTOM_OPP_PATH=/usr/local/Ascend/ascend-toolkit/"
+                    "latest/opp/deepseek-v32/vendors/customize:${ASCEND_CUSTOM_OPP_PATH}",
+                    "export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/"
+                    "opp/vendors/customize/op_api/lib/:${LD_LIBRARY_PATH}",
+                ])
+    return env_commands
 
 
 def _build_deepseek_fp8_env_commands(params: Dict[str, Any], engine: str) -> List[str]:
@@ -492,7 +536,8 @@ def _build_vllm_cmd_parts(params: Dict[str, Any]) -> str:
         elif isinstance(value, str) and value.strip().startswith('{') and value.strip().endswith('}'):
             cmd_parts.extend([arg_name, f"'{value}'"])
         else:
-            cmd_parts.extend([arg_name, str(value)])
+            # 对非 JSON 值进行 shell 安全转义，防止命令注入
+            cmd_parts.extend([arg_name, shlex.quote(str(value))])
 
     return " ".join(cmd_parts)
 
@@ -501,7 +546,10 @@ def _build_vllm_cmd_parts(params: Dict[str, Any]) -> str:
 
 def _handle_draft_model_case(params: Dict[str, Any], config: List[str]) -> None:
     """处理有草稿模型的推测解码配置"""
-    config.append(f'"model": "{params.get("speculative_decode_model_path")}"')
+    draft_path = params.get("speculative_decode_model_path", "")
+    # 对路径中的双引号和反斜杠进行 JSON 转义，防止 JSON-in-shell 注入
+    safe_path = draft_path.replace('\\', '\\\\').replace('"', '\\"')
+    config.append(f'"model": "{safe_path}"')
     config.append('"draft_tensor_parallel_size": 1')
     draft_model_info = ModelIdentifierDraft(params.get("speculative_decode_model_path"))
 
@@ -935,10 +983,10 @@ def build_start_script(params: Dict[str, Any]) -> str:
             # rpc_port: params 优先（config_loader 从 distributed_config.json 注入），其次环境变量
             dp_rpc_port = str(params.get("rpc_port", os.getenv('VLLM_DP_RPC_PORT', '13355')))
 
-            # DeepseekV3ForCausalLM 在 vllm_ascend DP 模式下使用专用并行参数
+            # DeepseekV3ForCausalLM / DeepseekV32ForCausalLM 在 vllm_ascend DP 模式下使用专用并行参数
             model_info = ModelIdentifier(
                 params.get("model_name"), params.get("model_path"), params.get("model_type"))
-            if (model_info.model_architecture == "DeepseekV3ForCausalLM"
+            if (model_info.model_architecture in ["DeepseekV3ForCausalLM", "DeepseekV32ForCausalLM"]
                     and engine == "vllm_ascend"):
                 dp_size = "4"
                 dp_size_local = "2"
@@ -959,6 +1007,11 @@ def build_start_script(params: Dict[str, Any]) -> str:
                     "export OMP_PROC_BIND=false",
                     f"export OMP_NUM_THREADS={os.getenv('OMP_NUM_THREADS', '100')}",
                     "export HCCL_BUFFSIZE=1024",
+                    "export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True",
+                    "export ASCEND_CUSTOM_OPP_PATH=/usr/local/Ascend/ascend-toolkit/"
+                    "latest/opp/deepseek-v32/vendors/customize:${ASCEND_CUSTOM_OPP_PATH}",
+                    "export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/"
+                    "opp/vendors/customize/op_api/lib/:${LD_LIBRARY_PATH}",
                 ])
             else:
                 script_parts.extend([
@@ -971,10 +1024,28 @@ def build_start_script(params: Dict[str, Any]) -> str:
                     "export NCCL_NET_GDR_LEVEL=SYS",
                 ])
 
-            if node_rank == 0:
-                script_parts.append(f"exec {cmd} --data-parallel-address {head_addr} --data-parallel-rpc-port {dp_rpc_port} --data-parallel-size {dp_size} --data-parallel-size-local {dp_size_local} --data-parallel-external-lb --data-parallel-rank 0")
+            # L3: dp_deployment 使用 `vllm serve <model>` 入口（对齐 V2）
+            _model_match = re.search(r"--model\s+('(?:[^']*)'|\S+)", cmd)
+            if _model_match:
+                _model_val = _model_match.group(1)
+                # 去掉 --model 参数（已成为 vllm serve 的位置参数）
+                dp_cmd = re.sub(r"\s*--model\s+(?:'[^']*'|\S+)", "", cmd)
+                # 替换入口命令: python3 -m ... → vllm serve <model>
+                dp_cmd = re.sub(
+                    r"^python3\s+-m\s+vllm\.entrypoints\.openai\.api_server",
+                    f"vllm serve {_model_val}",
+                    dp_cmd,
+                )
             else:
-                script_parts.append(f"exec {cmd} --data-parallel-address {head_addr} --data-parallel-rpc-port {dp_rpc_port} --data-parallel-size {dp_size} --data-parallel-size-local {dp_size_local} --data-parallel-external-lb --headless --data-parallel-start-rank {dp_start_rank}")
+                dp_cmd = cmd  # fallback: 保持原命令
+
+            if node_rank == 0:
+                script_parts.append(f"exec {dp_cmd} --data-parallel-address {head_addr} --data-parallel-rpc-port {dp_rpc_port} --data-parallel-size {dp_size} --data-parallel-size-local {dp_size_local} --data-parallel-external-lb --data-parallel-rank 0")
+            else:
+                # 非 rank-0 节点不对外服务，移除 --host / --port
+                dp_cmd_headless = re.sub(r"\s*--host\s+(?:'[^']*'|\S+)", "", dp_cmd)
+                dp_cmd_headless = re.sub(r"\s*--port\s+(?:'[^']*'|\S+)", "", dp_cmd_headless)
+                script_parts.append(f"exec {dp_cmd_headless} --data-parallel-address {head_addr} --data-parallel-rpc-port {dp_rpc_port} --data-parallel-size {dp_size} --data-parallel-size-local {dp_size_local} --data-parallel-external-lb --headless --data-parallel-start-rank {dp_start_rank}")
         return "\n".join(script_parts) + "\n"
 
     if engine == "vllm_ascend":
