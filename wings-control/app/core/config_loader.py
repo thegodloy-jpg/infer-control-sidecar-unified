@@ -15,7 +15,7 @@
 #   - 张量并行度自动设置
 #   - PD 分离 / LMCache / Router / Soft FP8 等高级特性注入
 #   - 分布式参数注入（Ray / NIXL / HCCL）
-#   - MMGM (HunyuanVideo) 多模态特殊路径探测
+#   - 张量并行度自动设置
 # =============================================================================
 # Copyright (c) xFusion Digital Technologies Co., Ltd. 2025-2025. All rights reserved.
 # -*- coding: utf-8 -*-
@@ -35,7 +35,6 @@ from app.utils.env_utils import get_master_ip, get_node_ips, get_lmcache_env, ge
     get_operator_acceleration_env, get_local_ip
 from app.utils.file_utils import check_torch_dtype, get_directory_size, check_permission_640, load_json_config
 from app.utils.model_utils import ModelIdentifier, is_qwen3_32b_nvfp4, is_deepseek_series_fp8, is_qwen3_series_fp8
-from app.utils.mmgm_utils import autodiscover_hunyuan_paths
 from app.utils.device_utils import check_pcie_cards
 
 logger = logging.getLogger(__name__)
@@ -260,45 +259,7 @@ def _merge_cmd_params(hardware_env, engine_specific_defaults, cmd_known_params, 
         return _merge_mindie_params(engine_specific_defaults, common_context, engine_cmd_parameter, model_info)
     elif engine == "sglang":
         return _merge_sglang_params(engine_specific_defaults, common_context, engine_cmd_parameter)
-    elif engine == "xllm":
-        return _merge_xllm_params(engine_specific_defaults, common_context, engine_cmd_parameter)
     return engine_specific_defaults
-
-
-def _merge_xllm_params(params, ctx, engine_cmd_parameter):
-    """处理 xllm 引擎的参数合并。
-
-    xllm 是华为昇腾的原生推理引擎，参数名映射表存储在
-    engine_parameter_mapping.json 的 default_to_xllm_parameter_mapping 键下。
-
-    Args:
-        params:              当前引擎参数字典（会被原地修改）
-        ctx:                 通用上下文（device、device_count 等）
-        engine_cmd_parameter: 用户 CLI 传入的引擎参数
-
-    Returns:
-        Dict[str, Any]: 合并后的引擎参数字典
-    """
-    # 加载 xllm 参数映射表
-    engine_param_map_config_path = os.path.join(
-        DEFAULT_CONFIG_DIR,
-        DEFAULT_CONFIG_FILES.get("engine_parameter_mapping")
-    )
-    xllm_param_map_config = load_json_config(engine_param_map_config_path)['default_to_xllm_parameter_mapping']
-
-    # 应用参数映射
-    for key, value in xllm_param_map_config.items():
-        if not value or engine_cmd_parameter.get(key) is None:
-            continue
-        else:
-            params[value] = engine_cmd_parameter.get(key)
-            # 专家并行参数需要转换为整数 0/1
-            if key == "enable_expert_parallel":
-                params[value] = 1 if engine_cmd_parameter.get(key) else 0
-
-    # 处理并行参数（xllm 使用 nnodes 表示张量并行度）
-    _adjust_tensor_parallelism(params, ctx["device_count"], 'nnodes')
-    return params
 
 
 def _merge_vllm_params(params, ctx, engine_cmd_parameter, model_info):
@@ -1148,10 +1109,9 @@ def _select_nvidia_engine(gpu_usage_mode: str, model_info) -> str:
     2. 启用 PD 分离 → vllm
     3. 启用 Wings Router → vllm
     4. MIG 模式 → vllm
-    5. embedding/rerank/mmum 模型 → vllm
-    6. mmgm 多模态 → wings（保留）
-    7. wings 已验证模型 → sglang（推荐高性能路径）
-    8. 其他未验证架构 → vllm（兜底）
+    5. embedding/rerank 模型 → vllm
+    6. wings 已验证模型 → sglang（推荐高性能路径）
+    7. 其他未验证架构 → vllm（兜底）
     """
     model_architecture = model_info.model_architecture
     model_type = model_info.identify_model_type()
@@ -1169,12 +1129,9 @@ def _select_nvidia_engine(gpu_usage_mode: str, model_info) -> str:
     elif gpu_usage_mode == "mig":
         logger.info("Device is Mig, automatically switched to VLLM engine")
         return vllm
-    elif model_type in ["embedding", "rerank", "mmum"]:
+    elif model_type in ["embedding", "rerank"]:
         logger.info("model type is %s, automatically switched to VLLM engine", model_type)
         return vllm
-    elif model_type == "mmgm":
-        logger.info("model type is %s, automatically switched to wings engine", model_type)
-        return 'wings'
     elif is_wings_supported:
         logger.info("No engine specified, automatically selected engine: sglang")
         return 'sglang'
@@ -1190,13 +1147,12 @@ def _select_ascend_engine(device_name: str, model_info) -> str:
     优先级（由高到低）：
     1. Ascend310 → 强制 mindie（vllm_ascend 不支持 310 系列）
     2. embedding / rerank 模型 → vllm_ascend
-    3. mmgm 多模态模型 → wings
-    4. 算子加速（USE_KUNLUN_ATB）启用 → vllm_ascend
-    5. LMCache KV Offload 启用 → vllm_ascend
-    6. Wings Router 启用 → vllm_ascend
-    7. Soft FP8 量化启用 → vllm_ascend
-    8. Wings 已验证模型 → mindie（Ascend 上的推荐引擎）
-    9. 未验证架构 → vllm_ascend（兜底）
+    3. 算子加速（USE_KUNLUN_ATB）启用 → vllm_ascend
+    4. LMCache KV Offload 启用 → vllm_ascend
+    5. Wings Router 启用 → vllm_ascend
+    6. Soft FP8 量化启用 → vllm_ascend
+    7. Wings 已验证模型 → mindie（Ascend 上的推荐引擎）
+    8. 未验证架构 → vllm_ascend（兜底）
 
     Args:
         device_name: 设备型号名称，含 '310' 表示昇腾 310 系列
@@ -1219,9 +1175,6 @@ def _select_ascend_engine(device_name: str, model_info) -> str:
     elif model_type in ["embedding", "rerank"]:
         logger.info("model type is %s, automatically switched to VLLM engine", model_type)
         return "vllm_ascend"
-    elif model_type == "mmgm":
-        logger.info("model type is %s, automatically switched to wings engine", model_type)
-        return 'wings'
     elif get_operator_acceleration_env():
         logger.warning("operator_acceleration is enabled, "
                        "automatically switched to VLLM_Ascend engine")
@@ -1264,13 +1217,8 @@ def _validate_user_engine(engine: str, device_name: str, gpu_usage_mode: str, mo
         ValueError: 引擎名不在支持列表中时抛出
     """
     #
-    if engine not in ['mindie', 'vllm', 'vllm_ascend', 'sglang', 'wings', 'xllm', 'transformers']:
-        raise ValueError(f"The engine {engine} is not supported yet!Please change to 'mindie', 'vllm', 'sglang', 'xllm' or 'wings'")
-
-    # transformers 别名映射为 wings
-    if engine == "transformers":
-        logger.info("Engine 'transformers' is an alias for 'wings', using wings engine")
-        engine = "wings"
+    if engine not in ['mindie', 'vllm', 'vllm_ascend', 'sglang']:
+        raise ValueError(f"The engine {engine} is not supported yet! Please change to 'mindie', 'vllm', 'vllm_ascend' or 'sglang'")
 
     vllm = 'vllm'
     model_type = model_info.identify_model_type()
@@ -1529,94 +1477,6 @@ def _merge_final_config(engine_config: Dict[str, Any],
 
     return cmd_known_params
 
-# ==============================  MMGM/Wings  ==============================
-
-
-def _build_mmgm_engine_defaults(cmd_known_params: Dict[str, Any],
-                                hardware_env: Dict[str, Any]) -> Dict[str, Any]:
-    """
-     mmgm + wings  engine_config
-    -  device
-    -  --save-path  engine_config.save_path outputs/
-    - / HYV_*  HunyuanVideo
-    -  flow_reverse
-    """
-    #  wings_adapter nvidia/ascend
-    device = hardware_env.get("device")
-
-    #  HYV_MODEL_BASE
-    model_path = cmd_known_params.get("model_path")
-    if not model_path:
-        raise ValueError("[MMGM] model_path (or HYV_MODEL_PATH) is required for mmgm+wings.")
-
-    #
-    discovered = autodiscover_hunyuan_paths(model_path)
-
-    #  shell
-    dit_weight = discovered["dit_weight"]
-    vae_path = discovered["vae_path"]
-    te_path = discovered["text_encoder_path"]
-    te2_path = discovered["text_encoder_2_path"]
-
-    #
-    missing = []
-
-    def _must_exist(path: str, kind: str, key: str):
-        if not path:
-            missing.append(f"{key}({kind})")
-            return
-        if kind == "dir" and not os.path.isdir(path):
-            missing.append(f"{key}({kind}='{path}')")
-        if kind == "file" and not os.path.isfile(path):
-            missing.append(f"{key}({kind}='{path}')")
-
-    _must_exist(model_path, "dir", "model_path")
-    _must_exist(dit_weight, "file", "dit_weight")
-    _must_exist(vae_path, "dir", "vae_path")
-    _must_exist(te_path, "dir", "text_encoder_path")
-    _must_exist(te2_path, "dir", "text_encoder_2_path")
-
-    if missing:
-        raise ValueError("[MMGM] Required HunyuanVideo paths not found: " + ", ".join(missing))
-
-    #  --save-path save_path
-    save_path = cmd_known_params.get("save_path")  #
-
-    engine_cfg: Dict[str, Any] = {
-        "device": device,                       #  wings_adapter nvidia/ascend
-        "model_path": model_path,               #  --model-base
-        "dit_weight": dit_weight,               #  --dit-weight
-        "vae_path": vae_path,                   #  --vae-path
-        "text_encoder_path": te_path,           #  --text-encoder-path
-        "text_encoder_2_path": te2_path,        #  --text-encoder-2-path
-    }
-    if save_path:
-        engine_cfg["save_path"] = save_path     #  wings_adapter  --save-path
-
-    logger.info("[MMGM] Resolved HunyuanVideo engine_config: " +
-                json.dumps({
-                     k: v for k, v in engine_cfg.items()
-                     if k not in ("dit_weight",)
-                 }, indent=2))
-    return engine_cfg
-
-
-def _build_llm_engine_defaults(cmd_known_params: Dict[str, Any],
-                                hardware_env: Dict[str, Any]) -> Dict[str, Any]:
-    #  wings_adapter nvidia/ascend
-    device = hardware_env.get("device")
-
-    #  HYV_MODEL_BASE
-    model_path = cmd_known_params.get("model_path")
-    if not model_path:
-        raise ValueError("[MMGM] model_path (or HYV_MODEL_PATH) is required for mmgm+wings.")
-    engine_cfg: Dict[str, Any] = {
-        "device": device,                       #  wings_adapter nvidia/ascend
-        "model_path": model_path,
-    }
-    return engine_cfg
-
-
 def load_and_merge_configs(
     hardware_env: Dict[str, Any],
     known_args: argparse.Namespace
@@ -1634,10 +1494,7 @@ def load_and_merge_configs(
         2. 初始化 ModelIdentifier 对象获取模型元信息
         3. 自动选择/校验引擎，并处理 Ascend 专属逻辑
         4. 加载用户配置文件 (若指定)
-        5. 根据引擎和模型类型选择配置构建路径：
-           - mmgm + wings  → HunyuanVideo 稀疑路径，自动检测权重/VAE/编码器路径
-           - llm + wings   → 通用 LLM 路径
-           - 其他引擎     → 标准 _get_model_specific_config 查找链
+        5. 通过 _get_model_specific_config 查找链获取引擎默认配置
         6. 合并所有配置层并返回最终参数字典
 
     Args:
@@ -1667,35 +1524,18 @@ def load_and_merge_configs(
 
 
 
-    # 2. ,mmgmd
+    # 2. 引擎自动选择/校验
     cmd_known_params = _auto_select_engine(hardware_env, cmd_known_params, model_info)
 
-    # 3.
+    # 3. 加载用户配置
     config = known_args.config_file
     user_config = _load_user_config(config)
-
-    # ===== MMGM/Wings  mmgm  engine_config JSON =====
-    engine_is_wings_mmgm = (cmd_known_params.get("engine") == "wings" and
-                            cmd_known_params.get("model_type") == "mmgm")
-
-    engine_is_wings_llm = (cmd_known_params.get("engine") == "wings" and
-                            cmd_known_params.get("model_type") == "llm")
-
-
 
     if user_config and get_config_force_env():
         engine_config = user_config
     else:
-        if engine_is_wings_mmgm:
-            # mmgm  JSON
-            mmgm_defaults = _build_mmgm_engine_defaults(cmd_known_params, hardware_env)
-            engine_config = _merge_configs(mmgm_defaults, user_config)
-        elif engine_is_wings_llm:
-            llm_defaults = _build_llm_engine_defaults(cmd_known_params, hardware_env)
-            engine_config = _merge_configs(llm_defaults, user_config)
-        else:
-            engine_specific_defaults = _get_model_specific_config(hardware_env, cmd_known_params, model_info)
-            engine_config = _merge_configs(engine_specific_defaults, user_config)
+        engine_specific_defaults = _get_model_specific_config(hardware_env, cmd_known_params, model_info)
+        engine_config = _merge_configs(engine_specific_defaults, user_config)
 
     # 4.
     final_engine_params = _merge_final_config(engine_config, cmd_known_params)

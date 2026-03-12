@@ -9,7 +9,6 @@
 #   - file_utils.py        —— 安全文件 I/O（原子写入、权限检查、JSON 配置加载）
 #   - model_utils.py       —— 模型元数据解析（架构识别、类型分类、量化方式检测）
 #   - process_utils.py     —— 进程管理（启动等待、PID 记录、输出流日志转发）
-#   - mmgm_utils.py        —— HunyuanVideo 多模态路径自动探测工具
 #   - noise_filter.py      —— 日志噪声过滤（抑制 /health 访问日志、批处理噪声、pynvml 警告）
 #
 # Sidecar 契约:

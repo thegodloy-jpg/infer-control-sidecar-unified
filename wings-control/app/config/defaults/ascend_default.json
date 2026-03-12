@@ -208,28 +208,6 @@
         }
       }
     },
-    "mmum": {
-      "default": {
-        "vllm_ascend": {
-          "trust_remote_code": true,
-          "max_model_len": 4096
-        },
-        "vllm_ascend_distributed": {
-          "trust_remote_code": true,
-          "max_model_len": 4096
-        },
-        "mindie": {
-          "maxSeqLen": 4096,
-          "maxInputTokenLen": 2048,
-          "maxIterTimes": 2048
-        },
-        "mindie_distributed": {
-          "maxSeqLen": 4096,
-          "maxInputTokenLen": 2048,
-          "maxIterTimes": 2048
-        }
-      }
-    },
     "embedding": {
       "default": {
         "vllm_ascend": {

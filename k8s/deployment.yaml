@@ -144,7 +144,7 @@ spec:
                 echo "Accel is enabled, installing accel packages..."
                 cd /accel-volume
                 #1.安装
-                python install.py   --accel1 --accel2
+                python install.py   --accel
                 
                 echo "Accel packages installed successfully"
               else

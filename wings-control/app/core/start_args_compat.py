@@ -101,8 +101,7 @@ class LaunchArgs:
         config_file:    用户自定义 JSON 配置文件路径
         gpu_usage_mode: GPU 使用模式：full（完整卡）/ mig（MIG 切片）/ default
         device_count:   设备数量（GPU/NPU 数），影响张量并行度
-        model_type:     模型类型：llm / embedding / rerank / mmgm / mmum
-        save_path:      输出保存路径（如 MMGM 生成结果）
+        model_type:     模型类型：llm / embedding / rerank
         trust_remote_code: 是否信任远程代码（HuggingFace 模型加载）
         dtype:          推理精度类型：auto / float16 / bfloat16 等
         kv_cache_dtype: KV Cache 存储精度
@@ -231,7 +230,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 # 支持的推理引擎白名单；不在此集合中的 engine 值将被 parse_launch_args 拒绝
-SUPPORTED_ENGINES = {"vllm", "vllm_ascend", "sglang", "mindie", "wings", "xllm"}
+SUPPORTED_ENGINES = {"vllm", "vllm_ascend", "sglang", "mindie"}
 
 
 def parse_launch_args(argv: list[str] | None = None) -> LaunchArgs:

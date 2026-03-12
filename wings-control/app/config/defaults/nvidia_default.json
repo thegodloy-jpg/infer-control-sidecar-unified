@@ -292,26 +292,6 @@
         }
       }
     },
-    "mmum": {
-      "default": {
-        "vllm": {
-          "trust_remote_code": true,
-          "max_model_len": 4096
-        },
-        "vllm_distributed": {
-          "trust_remote_code": true,
-          "max_model_len": 4096
-        },
-        "sglang": {
-          "trust_remote_code": true,
-          "context_length": 4096
-        },
-        "sglang_distributed": {
-          "trust_remote_code": true,
-          "context_length": 4096
-        }
-      }
-    },
     "embedding": {
       "default": {
         "vllm": {

@@ -7,15 +7,13 @@
 #   本模块提供模型元信息提取，用于引擎自动选择和参数默认值决策:
 #   - ModelIdentifier 类: 读取 config.json 并解析模型架构/类型/量化方式
 #   - 模型架构映射表: 以架构名为 key，映射到已验证模型列表
-#   - 模型类型分类: llm/embedding/rerank/mmum/mmgm
+#   - 模型类型分类: llm/embedding/rerank
 #
 # 支持的模型架构:
 #   - LLM:       DeepseekV3ForCausalLM, DeepseekV32ForCausalLM,
 #                Glm4ForCausalLM, Glm4MoeForCausalLM,
 #                Qwen2ForCausalLM, Qwen3ForCausalLM, Qwen3MoeForCausalLM,
 #                Qwen3NextForCausalLM, LlamaForCausalLM
-#   - MMUM:      Qwen2_5_VLForConditionalGeneration,
-#                Qwen3VLForConditionalGeneration, Qwen3VLMoeForConditionalGeneration
 #   - Embedding: XLMRobertaModel, BertModel, Qwen3ForCausalLM(Embedding)
 #   - Rerank:    XLMRobertaForSequenceClassification
 #
@@ -83,20 +81,6 @@ _LLM_MODELS = {
         ]
 }
 
-_MMUM_MODELS = {
-    "Qwen2_5_VLForConditionalGeneration": [
-        "Qwen2.5-VL-7B-Instruct",
-        "Qwen2.5-VL-72B-Instruct"
-        ],
-    "Qwen3VLForConditionalGeneration": [
-        "Qwen3-VL-8B-Instruct",
-        "Qwen3-VL-32B-Instruct"
-        ],
-    "Qwen3VLMoeForConditionalGeneration": [
-        "Qwen3-VL-30B-A3B-Instruct"
-        ]
-}
-
 _EMBEDDING_MODELS = {
     "XLMRobertaModel": [
         "bge-m3"
@@ -139,7 +123,6 @@ class ModelIdentifier:
         self.num_hidden_layers = self.config.get("num_hidden_layers")
         self.model_dict = {
                 "llm": _LLM_MODELS,
-                "mmum": _MMUM_MODELS,
                 "embedding": _EMBEDDING_MODELS,
                 "rerank": _RERANK_MODELS
             }
@@ -160,7 +143,7 @@ class ModelIdentifier:
             return "unknown_architecture"
 
     def identify_model_type(self) -> Optional[str]:
-        """推断模型类型（llm/embedding/rerank/mmum/mmgm）。
+        """推断模型类型（llm/embedding/rerank）。
 
         当 model_type == 'auto' 时，根据 model_name 与内置映射表匹配;
         否则直接返回用户指定值。
