@@ -30,12 +30,10 @@ import argparse
 import logging
 import os
 
-if not logging.root.handlers:
-    logging.basicConfig(
-        level=os.getenv("LOG_LEVEL", "INFO"),
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
-logger = logging.getLogger("reason-proxy")
+from app.utils.log_config import setup_root_logging, LOGGER_PROXY
+
+setup_root_logging()
+logger = logging.getLogger(LOGGER_PROXY)
 
 
 def parse_args():

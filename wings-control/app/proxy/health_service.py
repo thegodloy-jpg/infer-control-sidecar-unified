@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 
 import httpx
@@ -30,7 +31,6 @@ import uvicorn
 from fastapi import FastAPI, Response
 from fastapi.responses import JSONResponse
 
-from app.proxy import proxy_config as C
 from app.proxy.health_router import (
     _jittered_sleep_base,
     build_health_body,
@@ -40,6 +40,10 @@ from app.proxy.health_router import (
     teardown_health_monitor,
     tick_observe_and_advance,
 )
+from app.utils.log_config import setup_root_logging, LOGGER_HEALTH
+
+setup_root_logging()
+_logger = logging.getLogger(LOGGER_HEALTH)
 
 # 单独的 FastAPI 应用，通常监听 `HEALTH_SERVICE_PORT`。
 app = FastAPI()
@@ -73,7 +77,7 @@ async def health_monitor_loop():
         try:
             await tick_observe_and_advance(app.state.health, app.state.client)
         except Exception as e:
-            C.logger.warning("health_monitor_error: %s", e)
+            _logger.warning("health_monitor_error: %s", e)
         await asyncio.sleep(_jittered_sleep_base(app.state.health))
 
 

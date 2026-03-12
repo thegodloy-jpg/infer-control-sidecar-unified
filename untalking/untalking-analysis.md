@@ -97,7 +97,7 @@
 | 14 | 验证报告 | `docs/verify/` | 验证记录 |
 | 15 | .env.example | `.env.example` | 环境变量模板 |
 | 16 | requirements.txt | `requirements.txt` | 依赖清单 |
-| 17 | 日志文件持久化 | `/var/log/wings/*.log` | 5 副本滚动 |
+| 17 | Shell 日志文件 | `wings_start.sh` tee → `/var/log/wings/wings_start.log` | 5 副本滚动（容器内非持久） |
 | 18 | Worker 注册重试 | `_wait_and_distribute_to_workers()` | 3 轮 ×300s |
 | 19 | FORCE_TOPK_TOPP 默认启用 | `gateway.py` | top_k/top_p 强制 |
 | 20 | MAX_REQUEST_BYTES 20MB | `gateway.py` | 请求体上限 |
@@ -165,6 +165,8 @@
 | **Benchmark** | `BENCH_*` 系列 | 测试工具不迁移 |
 | **硬件** | `CUDA_VISIBLE_DEVICES` (torch 探测) | V1 用 DEVICE_COUNT |
 | **分布式** | `WINGS_MASTER_*`, `WINGS_WORKER_*` | V1 重构为 ManagedProc |
+| **多模态** | `HYV_*`, `SAVE_PATH` (mmgm 用途) | 多模态功能已从 V1 移除 |
+| **xLLM** | xLLM 相关配置 | xLLM 适配器已从 V1 移除 |
 
 ---
 
@@ -398,26 +400,23 @@ dp_start_rank = "2" if node_rank != 0 else "0"
 | `/v1/completions` | POST | 文本补全 |
 | `/v1/responses` | POST | Responses API 兼容入口 |
 | `/v1/rerank` | POST | 重排序 |
+| `/v1/embeddi0 个对外路径，全部继承）
+
+| 路径 | 方法 | 功能 |
+|------|------|------|
+| `/v1/chat/completions` | POST | 对话补全 |
+| `/v1/completions` | POST | 文本补全 |
+| `/v1/responses` | POST | Responses API 兼容入口 |
+| `/v1/rerank` | POST | 重排序 |
 | `/v1/embeddings` | POST | 向量嵌入 |
 | `/tokenize` | POST | 分词 |
 | `/metrics` | GET | 指标透传 |
-| `/v1/videos/text2video` | POST | 视频生成提交 |
-| `/v1/videos/text2video/{task_id}` | GET | 视频任务状态 |
-| `/v1/images/text2image` | POST | 图像生成提交 |
-| `/v1/images/text2image/{task_id}` | GET | 图像任务状态 |
 | `/health` | GET / HEAD | 健康检查 |
 | `/v1/models` | GET | 模型列表 |
 | `/v1/version` | GET | 版本信息 |
 
-> 按路由定义数统计为 15 个，其中 `/health` 同时注册了 GET 和 HEAD。
-
-### 透传逻辑
-
-**V1 和 V2 均无“未注册接口自动透传”机制** — `gateway.py` 只对显式注册的路由调用 `_forward_stream()`、`_forward_nonstream()` 或专用的 GET handler；未在 proxy 中定义的 API 路径会直接由 FastAPI 返回 404。四个引擎共用同一套转发逻辑，差异只体现在后端 engine 自己是否实现了对应的已注册接口。
-
-### V1 新增服务化功能
-
-| 功能 | 说明 |
+> 按路由定义数统计为 11 个，其中 `/health` 同时注册了 GET 和 HEAD。
+> 多模态端点（video/image）已在代码清理中移除
 |------|------|
 | Health 独立服务 | 端口 19000，与代理解耦 |
 | MindIE 健康探针 | 专用 URL 路径探测 |
@@ -512,40 +511,86 @@ cd /shared-volume && bash start_command.sh
 
 ### V1 (sidecar) 日志架构
 
+#### 三容器日志流
+
 ```
 wings-infer 容器:
-├── ManagedProc("proxy")  ─→ stdout (继承) ─→ kubectl logs -c wings-infer
-├── ManagedProc("health") ─→ stdout (继承) ─→ kubectl logs -c wings-infer
-└── 配置日志 ─→ /var/log/wings/wings-infer.log (5 副本滚动)
+├── wings_start.sh     ─→ exec tee ─→ stdout + /var/log/wings/wings_start.log
+├── main.py (launcher) ─→ stderr (继承) ─→ kubectl logs -c wings-infer
+│   └── logger: wings-launcher
+├── ManagedProc("proxy")  ─→ stdout/stderr (继承) ─→ kubectl logs -c wings-infer
+│   └── logger: wings-proxy
+└── ManagedProc("health") ─→ stdout/stderr (继承) ─→ kubectl logs -c wings-infer
+    └── logger: wings-health
 
 engine 容器:
-└── bash start_command.sh ─→ stdout ─→ kubectl logs -c engine
+└── bash start_command.sh ─→ stdout/stderr ─→ kubectl logs -c engine
 
-wings-accel 容器:
-└── initContainer ─→ stdout ─→ kubectl logs -c wings-accel (仅初始化)
+wings-accel 容器 (initContainer):
+└── echo 语句 ─→ stdout ─→ kubectl logs -c wings-accel
 ```
 
-**日志持久化**:
-```python
-# speaker_logging.py
-configure_worker_logging(force=True)
-# → RotatingFileHandler("/var/log/wings/wings-infer.log", maxBytes=10MB, backupCount=5)
-# → StreamHandler(stdout)
+#### 统一日志格式
+
+所有 Python 组件使用 `utils/log_config.py` 中定义的统一格式：
+
+```
+%(asctime)s [%(levelname)s] [%(name)s] %(message)s
 ```
 
-### 当前状态与建议
+输出示例：
+```
+2026-03-12 10:00:00 [INFO] [wings-launcher] 启动子进程 proxy: python -m uvicorn ...
+2026-03-12 10:00:01 [INFO] [wings-proxy] Reason-Proxy is starting on 0.0.0.0:18000
+2026-03-12 10:00:02 [WARNING] [wings-health] health_monitor_error: ...
+```
 
-**现状**: 三个容器的日志**分别**收集，需通过 `kubectl logs -c <container>` 分别查看：
+#### 日志文件持久化
+
+Shell 层面 `wings_start.sh` 通过 `exec > >(tee -a "$LOG_FILE") 2>&1` 将全部输出
+同时写入 `/var/log/wings/wings_start.log`（5 副本滚动），**但该路径未挂载持久卷，
+容器重启后丢失**。Python 层面**无** `RotatingFileHandler`，所有日志仅输出到 stderr。
+
+#### 日志噪声过滤
+
+| 模块 | 过滤内容 | 机制 |
+|------|---------|------|
+| `noise_filter.py` | `/health` 探针、`Prefill/Decode batch` 噪声、pynvml 警告 | logging.Filter + sys.stdout/stderr 包装 |
+| `speaker_logging.py` | 多 worker 日志抑制、uvicorn.access、/health 出入站 | speaker 决策 + _DropByRegex Filter |
+
+### kubectl logs --all-containers 查看方式
+
 ```bash
-kubectl logs <pod> -c wings-infer    # 代理+健康
-kubectl logs <pod> -c engine          # 引擎
-kubectl logs <pod> -c wings-accel     # Accel 初始化
+# 查看全部容器日志（推荐）
+kubectl logs <pod> --all-containers
+
+# 实时跟踪
+kubectl logs <pod> --all-containers -f
+
+# 按容器查看
+kubectl logs <pod> -c wings-infer    # launcher + proxy + health
+kubectl logs <pod> -c engine          # 推理引擎
+kubectl logs <pod> -c wings-accel     # Accel 初始化（仅历史）
 ```
 
-**尚未实现**: `kubectl logs -f` 统一查看所有容器日志的需求。当前设计下，需要：
-- 方案 A: 使用 `kubectl logs -f --all-containers` 查看所有容器
-- 方案 B: 添加日志 sidecar 容器，聚合所有日志到 stdout
-- 方案 C: 共享日志卷 + 日志采集器 (如 Fluent Bit)
+K8s 自动添加容器名前缀，结合统一的 `[%(name)s]` 组件标签，输出示例：
+```
+[wings-infer] 2026-03-12 10:00:00 [INFO] [wings-launcher] start command written: /shared-volume/start_command.sh
+[wings-infer] 2026-03-12 10:00:01 [INFO] [wings-proxy] Reason-Proxy is starting on 0.0.0.0:18000
+[engine]      INFO 03-12 10:00:02 api_server.py:xxx] vLLM engine started
+[wings-infer] 2026-03-12 10:00:03 [INFO] [wings-health] Health monitor loop enabled
+```
+
+### 重构改动清单
+
+| 文件 | 改动 |
+|------|------|
+| `utils/log_config.py` | **新建** — 统一格式常量 + `setup_root_logging()` |
+| `main.py` | 改用 `setup_root_logging()` + `LOGGER_LAUNCHER`，移除冗余 `[launcher]` 前缀 |
+| `proxy/proxy_config.py` | 改用 `setup_root_logging()` + `LOGGER_PROXY`，替换独立 `basicConfig` |
+| `proxy/speaker_logging.py` | `_ensure_root_handler()` 使用统一格式 |
+| `proxy/health_service.py` | 增加 `LOGGER_HEALTH` 独立 logger，替代共用 `C.logger` |
+| `wings_start.sh` | 移除死代码 `LAUNCHER_LOG_FILE` / `WINGS_PROXY_LOG_FILE` |
 
 ---
 

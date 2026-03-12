@@ -238,11 +238,13 @@ def _ensure_root_handler():
     """
      root logger  StreamHandlerstderr
      logger
+    使用 log_config 中的统一格式。
     """
+    from app.utils.log_config import LOG_FORMAT, LOG_DATE_FORMAT
     root = logging.getLogger()
     if not root.handlers:
         h = logging.StreamHandler(stream=sys.stderr)
-        fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s[pid=%(process)d] %(message)s")
+        fmt = logging.Formatter(LOG_FORMAT, datefmt=LOG_DATE_FORMAT)
         h.setFormatter(fmt)
         root.addHandler(h)
 

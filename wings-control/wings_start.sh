@@ -36,17 +36,13 @@ LOG_DIR="${LOG_DIR:-/var/log/wings}"
 chmod 777 "$LOG_DIR" 2>/dev/null || true
 
 LOG_FILE="$LOG_DIR/wings_start.log"
-LAUNCHER_LOG_FILE="$LOG_DIR/wings.log"
-WINGS_PROXY_LOG_FILE="$LOG_DIR/wings_proxy.log"
 TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 
 # 备份旧日志（保留最近 5 个）
-for f in "$LOG_FILE" "$LAUNCHER_LOG_FILE" "$WINGS_PROXY_LOG_FILE"; do
-    ls -t "${f}".* 2>/dev/null | tail -n +6 | xargs rm -f -- 2>/dev/null || true
-    [ -f "$f" ] && mv "$f" "${f}.${TIMESTAMP}" 2>/dev/null || true
-done
+ls -t "${LOG_FILE}".* 2>/dev/null | tail -n +6 | xargs rm -f -- 2>/dev/null || true
+[ -f "$LOG_FILE" ] && mv "$LOG_FILE" "${LOG_FILE}.${TIMESTAMP}" 2>/dev/null || true
 
-# 重定向所有输出到日志文件
+# 重定向所有输出到日志文件（同时保留 stdout 供 kubectl logs 采集）
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 echo "===== [$(date)] Script started ====="

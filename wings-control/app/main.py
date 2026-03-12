@@ -81,13 +81,11 @@ from app.core.start_args_compat import LaunchArgs, parse_launch_args
 from app.core.wings_entry import build_launcher_plan
 from app.utils.env_utils import get_local_ip, get_master_ip, get_node_ips
 from app.utils.file_utils import safe_write_file
+from app.utils.log_config import setup_root_logging, LOGGER_LAUNCHER
 from app.utils.noise_filter import install_noise_filters
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] [launcher] %(message)s",
-)
-logger = logging.getLogger("wings-sidecar-launcher")
+setup_root_logging()
+logger = logging.getLogger(LOGGER_LAUNCHER)
 
 # 安装噪声过滤器：抑制 /health 访问日志、batch 噪声、pynvml FutureWarning
 # 旧版 wings.py 在模块加载时调用，新版需在 launcher 入口显式调用
@@ -140,13 +138,13 @@ def _start(proc: ManagedProc) -> None:
         - 启动失败通常是由于命令不存在或权限不足，需检查 argv[0] 路径
         - 启动成功后需要通过 poll() 检查进程是否正常运行
     """
-    logger.info("[launcher] 启动子进程 %s: %s", proc.name, " ".join(proc.argv))
+    logger.info("启动子进程 %s: %s", proc.name, " ".join(proc.argv))
     try:
         # 使用 Popen 创建子进程，env 参数完全替换（非继承）父进程环境
         proc.proc = subprocess.Popen(proc.argv, env=proc.env)
     except OSError as e:
         # OSError 通常表示可执行文件不存在或权限问题
-        logger.error("[launcher] 启动 %s 失败: %s", proc.name, e)
+        logger.error("启动 %s 失败: %s", proc.name, e)
 
 
 def _stop(proc: ManagedProc) -> None:
@@ -171,19 +169,19 @@ def _stop(proc: ManagedProc) -> None:
     # 检查进程是否仍在运行 (poll() 返回 None 表示运行中)
     if proc.proc.poll() is None:
         # 第一阶段：发送 SIGTERM 请求优雅退出
-        logger.info("[launcher] 发送 SIGTERM 到 %s (pid=%d)", proc.name, proc.proc.pid)
+        logger.info("发送 SIGTERM 到 %s (pid=%d)", proc.name, proc.proc.pid)
         proc.proc.terminate()
         try:
             proc.proc.wait(timeout=10)  # 等待最多 10 秒
         except subprocess.TimeoutExpired:
             # 第二阶段：优雅退出超时，强制杀死
-            logger.warning("[launcher] %s 未响应 SIGTERM，发送 SIGKILL", proc.name)
+            logger.warning("%s 未响应 SIGTERM，发送 SIGKILL", proc.name)
             proc.proc.kill()
             try:
                 proc.proc.wait(timeout=5)  # 再等待 5 秒
             except subprocess.TimeoutExpired:
                 # 极端情况：进程无法终止（内核级阻塞）
-                logger.warning("[launcher] %s 在 SIGKILL 后仍未退出，放弃等待", proc.name)
+                logger.warning("%s 在 SIGKILL 后仍未退出，放弃等待", proc.name)
     proc.proc = None  # 清理引用
 
 
@@ -221,14 +219,14 @@ def _restart_if_needed(proc: ManagedProc) -> None:
         backoff = min(2 ** proc._crash_count, MAX_BACKOFF_SEC)
         proc._backoff_until = time.time() + backoff
         logger.warning(
-            "[launcher] %s 以退出码 %s 退出（运行 %0.1fs），"
+            "%s 以退出码 %s 退出（运行 %0.1fs），"
             "连续崩溃 %d 次，等待 %ds 后重启...",
             proc.name, code, uptime, proc._crash_count, backoff,
         )
     else:
         # 稳定运行后退出，重置崩溃计数器
         proc._crash_count = 0
-        logger.warning("[launcher] %s 以退出码 %s 退出，正在重启...", proc.name, code)
+        logger.warning("%s 以退出码 %s 退出，正在重启...", proc.name, code)
 
     # 检查是否在退避期内
     if time.time() < proc._backoff_until:
