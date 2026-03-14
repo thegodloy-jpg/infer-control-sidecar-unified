@@ -946,7 +946,7 @@ def _load_user_config(config) -> Dict[str, Any]:
         # JSON
         try:
             user_config = json.loads(config)
-            logger.info("Successfully parsed config from JSON string")
+            logger.info("Successfully parsed config from JSON string, keys: %s", list(user_config.keys()))
             return user_config
         except json.JSONDecodeError:
             logger.info("The config-file is not JSON string, will load it as a file")
@@ -954,6 +954,8 @@ def _load_user_config(config) -> Dict[str, Any]:
         #
         logger.info("Loading user-specified config file: %s", config)
         user_config = load_json_config(config)
+        if user_config:
+            logger.info("User config loaded, keys: %s", list(user_config.keys()))
     else:
         logger.warning("User-specified config not found or invalid: %s", config)
 
@@ -1533,6 +1535,7 @@ def load_and_merge_configs(
 
     if user_config and get_config_force_env():
         engine_config = user_config
+        logger.info("CONFIG_FORCE=true: using user config exclusively, keys: %s", list(engine_config.keys()))
     else:
         engine_specific_defaults = _get_model_specific_config(hardware_env, cmd_known_params, model_info)
         engine_config = _merge_configs(engine_specific_defaults, user_config)
@@ -1540,6 +1543,6 @@ def load_and_merge_configs(
     # 4.
     final_engine_params = _merge_final_config(engine_config, cmd_known_params)
 
-
+    logger.info("Final engine_config keys: %s", list(engine_config.keys()))
     logger.info("Config merging completed.")
     return final_engine_params

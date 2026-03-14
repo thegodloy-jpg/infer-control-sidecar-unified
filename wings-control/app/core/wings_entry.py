@@ -241,4 +241,5 @@ def build_launcher_plan(launch_args: LaunchArgs, port_plan: PortPlan) -> Launche
         "exec > >(tee -a /var/log/wings/engine.log) 2>&1\n"
         + accel_preamble + script_body
     )
+    logger.info("Generated start_command.sh content:\n%s", command)
     return LauncherPlan(command=command, merged_params=merged, hardware_env=hardware)
