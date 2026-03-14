@@ -8,12 +8,22 @@
 ## US1 统一对外引擎命令【继承+新增】
 
 ### 1.1 需求背景
-用户面对 vLLM/SGLang/MindIE/vLLM-Ascend 四个引擎时，每个引擎的启动参数名称和格式各不相同，增加使用门槛。
 
-> 页面传参逻辑，json全部透传
+用户面对 vLLM/SGLang/MindIE/vLLM-Ascend 四个引擎时，每个引擎的启动参数名称和格式各不相同，增加使用门槛。
+此外，MaaS 页面需要"页面 JSON 透传"能力：指定开关和引擎字段后，允许命令直接转换，跳过 wings-control 的参数解析逻辑，直接透传给引擎。
+
+#### 核心诉求
+
+| 诉求 | 说明 |
+|------|------|
+| 参数统一 | wings-control 提供 37 个标准化 CLI/ENV 参数，屏蔽各引擎差异 |
+| JSON 透传 | 通过 `--config-file` / `CONFIG_FILE` 传入引擎原生参数的 JSON，直接穿透到引擎命令行或配置文件 |
+| 跳过默认合并 | `CONFIG_FORCE=true` 开关可跳过系统四层配置合并，用户 JSON 完全独占 |
 
 ### 1.2 实现设计
-#### wings-control层面
+
+#### wings-control 层面
+
 **解耦前**（老 wings）：wings.py 单文件 → 直接 subprocess 拉引擎 → 参数硬编码在各引擎 adapter 中。
 
 ```python
@@ -30,13 +40,13 @@ def start_engine_service(params):
 
 ```mermaid
 flowchart TD
-    A["用户 CLI/ENV"] --> B["start_args_compat.py<br/>LaunchArgs 数据类"]
+    A["用户 CLI/ENV"] --> B["start_args_compat.py<br/>LaunchArgs 37字段"]
     B --> C["config_loader.py 四层合并"]
     C --> C1["① 硬件默认"]
     C --> C2["② 模型特定"]
-    C --> C3["③ 用户 JSON"]
+    C --> C3["③ 用户 JSON<br/>(--config-file)"]
     C --> C4["④ CLI 覆盖"]
-    C1 & C2 & C3 & C4 --> D["engine_parameter_mapping.json<br/>参数名翻译"]
+    C1 & C2 & C3 & C4 --> D["engine_parameter_mapping.json<br/>参数名翻译（仅CLI参数）"]
     D --> E["engine_manager.py<br/>动态分发"]
     E --> F["adapter.build_start_script<br/>生成 bash 脚本"]
     F --> G["/shared-volume/start_command.sh"]
@@ -69,16 +79,230 @@ procs = _build_processes(port_plan)
 | vllm | `python3 -m vllm.entrypoints.openai.api_server` | `--key value` |
 | vllm (DP) | `vllm serve <model>` | `--key value` |
 | vllm_ascend | 同 vllm（+ CANN 环境初始化） | `--key value` |
-| sglang | `python3 -m sglang.launch_server`（老版本 用 `python`） | `--key value` |
+| sglang | `python3 -m sglang.launch_server`（老版本用 `python`） | `--key value` |
 | mindie | `./bin/mindieservice_daemon` | JSON 配置文件 |
 
-#### Mass层面
+#### 页面 JSON 透传逻辑
 
-1. **上层需要--engine参数强制传入**
+##### config-file 输入方式
+
+`--config-file` 参数（或环境变量 `CONFIG_FILE`）支持两种输入格式：
+
+| 格式 | 示例 | 判断逻辑 |
+|------|------|---------|
+| **内联 JSON 字符串** | `--config-file '{"tensor_parallel_size": 4}'` | 以 `{` 开头 `}` 结尾 → `json.loads()` |
+| **文件路径** | `--config-file /path/to/config.json` | 非 JSON → `os.path.exists()` → `load_json_config()` |
+
+代码位置：`config_loader.py` `_load_user_config()` 函数。
+
+##### 四层配置合并流程
+
+配置合并在 `load_and_merge_configs()` 中完成，分为两条路径：
+
+**路径 A：标准合并（默认，`CONFIG_FORCE=false`）**
+
+```
+① engine_specific_defaults = 硬件默认 + 模型默认 + CLI→mapping翻译
+② engine_config = deep_merge(engine_specific_defaults, user_config)   ← user_config 覆盖同名key
+③ cmd_known_params['engine_config'] = engine_config
+```
+
+- user_config 中的同名 key **覆盖**系统默认值
+- user_config 中的新增 key **保留**到 engine_config
+- 系统默认参数中 user_config 未指定的 key 仍然**保留**（不可删除）
+
+**路径 B：强制覆盖（`CONFIG_FORCE=true`）**
+
+```
+① engine_config = user_config                     ← 跳过所有默认配置
+② cmd_known_params['engine_config'] = engine_config
+```
+
+- 完全跳过 `_get_model_specific_config()`，不加载硬件默认和模型默认
+- 用户 JSON 独占 engine_config，100% 透传
+- 用户 JSON 必须包含所有引擎必需参数（如 `model`、`host`、`port`），否则引擎启动失败
+
+关键代码：
+
+```python
+# config_loader.py load_and_merge_configs()
+if user_config and get_config_force_env():
+    engine_config = user_config                                    # 路径B
+else:
+    engine_specific_defaults = _get_model_specific_config(...)     # 路径A
+    engine_config = _merge_configs(engine_specific_defaults, user_config)
+```
+
+##### mapping 翻译规则
+
+参数名翻译（`engine_parameter_mapping.json`）**仅作用于 CLI/ENV 的 37 个字段**，在 `_set_common_params()` 中执行：
+
+```python
+# 只翻译 CLI 参数（engine_cmd_parameter），不翻译 user_config
+for key, value in vllm_param_map.items():
+    if value and engine_cmd_parameter.get(key) is not None:
+        params[value] = engine_cmd_parameter.get(key)
+```
+
+**user_config（来自 config-file）的 key 不经过 mapping 翻译**，原样进入 engine_config。因此 config-file 中必须使用引擎原生字段名：
+
+| 写法 | vLLM 是否生效 | 原因 |
+|------|-------------|------|
+| `{"served_model_name": "qwen"}` | ✅ | 引擎原生名，adapter 转为 `--served-model-name` |
+| `{"model_name": "qwen"}` | ❌ | wings 统一名，不翻译，vLLM 不认识 `--model-name` |
+
+##### 各引擎 adapter 消费 engine_config 的方式
+
+**vLLM / SGLang**：遍历 engine_config 全部 key，无差别转为 CLI 参数。
+
+```python
+# vllm_adapter.py _build_vllm_cmd_parts()
+for arg, value in engine_config.items():
+    arg_name = f"--{arg.replace('_', '-')}"    # snake_case → --kebab-case
+    if isinstance(value, bool):
+        if value: cmd_parts.append(arg_name)   # True → --flag
+    elif ...:  # JSON dict → 单引号包裹
+    else:
+        cmd_parts.extend([arg_name, shlex.quote(str(value))])
+```
+
+✅ engine_config 中的**任意 key** 都会出现在最终命令中。
+
+**MindIE**：从 engine_config 中 `.get()` 固定 key 列表，组装5个 overrides 子块写入 `conf/config.json`。**不在列表内的 key 作为 extra 追加到 config.json 根级别。**
+
+```python
+# mindie_adapter.py build_start_script()
+server_overrides = {
+    "port": engine_config.get("port", 18000),
+    "tokenTimeout": engine_config.get("tokenTimeout", 600),
+    ...  # 固定 key 列表
+}
+# 收集未被消费的 key，追加到 config.json 根级别
+extra_overrides = {k: v for k, v in engine_config.items() if k not in _consumed_keys}
+overrides_dict = {
+    "server": server_overrides, ...,
+    "extra": extra_overrides,   # ← 新增：透传未知参数
+}
+```
+
+MindIE adapter 的固定 key 列表（写入对应 config.json 节点）：
+
+| 分组 | 支持的 key | 写入位置 |
+|------|-----------|---------|
+| ServerConfig | `ipAddress`, `port`, `httpsEnabled`, `inferMode`, `openAiSupport`, `tokenTimeout`, `e2eTimeout`, `allowAllZeroIpListening`, `interCommTLSEnabled` | `config['ServerConfig']` |
+| BackendConfig | `npuDeviceIds`, `multiNodesInferEnabled`, `interNodeTLSEnabled` | `config['BackendConfig']` |
+| ModelDeployConfig | `maxSeqLen`, `maxInputTokenLen`, `truncation` | `config['BackendConfig']['ModelDeployConfig']` |
+| ModelConfig | `modelName`, `modelWeightPath`, `worldSize`, `cpuMemSize`, `npuMemSize`, `trustRemoteCode`, `tp`, `dp`, `moe_tp`, `moe_ep`, `sp`, `cp`, `isMOE`, `isMTP` | `config['BackendConfig']['ModelDeployConfig']['ModelConfig'][0]` |
+| ScheduleConfig | `cacheBlockSize`, `maxPrefillBatchSize`, `maxPrefillTokens`, `prefillTimeMsPerReq`, `prefillPolicyType`, `decodeTimeMsPerReq`, `decodePolicyType`, `maxBatchSize`, `maxIterTimes`, `maxPreemptCount`, `supportSelectBatch`, `maxQueueDelayMicroseconds`, `bufferResponseEnabled`, `decodeExpectedTime`, `prefillExpectedTime` | `config['BackendConfig']['ScheduleConfig']` |
+| 其他 | `npu_memory_fraction` | 环境变量 `NPU_MEMORY_FRACTION` |
+| **extra（新增）** | **不在以上列表中的任意 key** | **`config` 根级别** |
+
+##### 透传能力矩阵
+
+| 场景 | vLLM/SGLang 透传 | MindIE 透传 | 说明 |
+|------|-----------------|-------------|------|
+| `CONFIG_FORCE=true` + config-file | 100%（全部转 CLI 参数） | 固定列表 key → 对应节点；其余 key → config.json 根级别 | 跳过系统默认合并 |
+| `CONFIG_FORCE=false` + config-file | 部分（默认参数仍注入） | 同上 | user_config 覆盖+新增，默认参数保留 |
+| 仅 CLI/ENV（37字段） | 无透传 | 无透传 | 只支持预定义字段 |
+
+##### config-file 约束规范
+
+| 约束 | 说明 | 影响范围 |
+|------|------|---------|
+| **必须使用引擎原生参数名** | user_config 不经过 mapping 翻译，wings 统一名（如 `model_name`）不会被转为引擎原生名（如 `served_model_name`） | 全部引擎 |
+| **不能透传环境变量** | config-file 中的参数只会变成 CLI 参数或写入 config.json，不会在引擎启动前 `export` 为环境变量 | 全部引擎 |
+| **37 字段之外的 ENV 不被处理** | wings-control 只读取 `start_args_compat.py` 中硬编码声明的环境变量 | 全部引擎 |
+| **`CONFIG_FORCE=true` 要求用户 JSON 完整** | 不走默认合并，缺少基础参数（`model`、`host`、`port` 等）会导致引擎启动失败 | 全部引擎 |
+| **JSON 格式严格** | config-file 必须是合法 JSON，key 必须是字符串，不支持注释 | 全部引擎 |
+| **空字符串参数被跳过** | adapter 跳过值为空字符串的参数，避免生成残缺命令 | vLLM/SGLang |
+| **布尔值 false 被跳过** | vLLM/SGLang adapter 中 `bool=False` 不输出 flag | vLLM/SGLang |
+| **安全转义** | 非 JSON 字符串值通过 `shlex.quote()` 防注入 | vLLM/SGLang |
+| **MindIE extra key 写入根级别** | 不在固定列表中的 key 追加到 config.json 根级别，如需写入特定节点（如 `ScheduleConfig`）须使用对应的原生 key 名 | MindIE |
+| **嵌套 dict 值需使用 JSON 字符串** | config-file 中的 dict 类型值会被保留为 Python dict 对象；vLLM/SGLang adapter 只识别字符串形式的 JSON（如 `"{\"type\": \"dynamic\"}"`），dict 对象会被 `str()` 转为 Python repr 格式导致引擎解析失败。正确做法：将嵌套 JSON 序列化为字符串 | vLLM/SGLang |
+
+##### 全链路样例（vLLM）
+
+K8s 部署配置：
+
+```yaml
+env:
+  - name: ENGINE
+    value: "vllm"
+  - name: MODEL_PATH
+    value: "/weights/Qwen2.5-7B"
+  - name: MODEL_NAME
+    value: "qwen2.5-7b"
+  - name: CONFIG_FILE
+    value: '{"gpu_memory_utilization": 0.85, "rope_scaling": "{\"type\": \"dynamic\", \"factor\": 2.0}", "enable_prefix_caching": true}'
+```
+
+**Step 1** — CLI 解析：`CONFIG_FILE` ENV 被 argparse 读取为 `config_file` 字段
+
+**Step 2** — `_load_user_config()`：检测到 JSON 字符串 → `json.loads()`
+
+```python
+user_config = {
+    "gpu_memory_utilization": 0.85,
+    "rope_scaling": "{\"type\": \"dynamic\", \"factor\": 2.0}",
+    "enable_prefix_caching": True
+}
+```
+
+**Step 3** — `_get_model_specific_config()` 生成系统默认（含 CLI 映射后的参数）:
+
+```python
+engine_specific_defaults = {
+    "model": "/weights/Qwen2.5-7B",             # model_path → model (mapping)
+    "served_model_name": "qwen2.5-7b",          # model_name → served_model_name (mapping)
+    "host": "0.0.0.0",
+    "port": 18000,
+    "gpu_memory_utilization": 0.9,              # CLI 默认值
+    "tensor_parallel_size": 1,                  # 自动计算
+    "max_model_len": 5120,                      # input_length + output_length
+    "trust_remote_code": True,
+    "enable_prefix_caching": False,             # CLI 默认值
+    ...
+}
+```
+
+**Step 4** — `_merge_configs()` 合并 user_config（后者优先）:
+
+```python
+engine_config = {
+    "model": "/weights/Qwen2.5-7B",             # ← 系统默认保留
+    "served_model_name": "qwen2.5-7b",          # ← 系统默认保留
+    "host": "0.0.0.0",                           # ← 系统默认保留
+    "port": 18000,                                # ← 系统默认保留
+    "gpu_memory_utilization": 0.85,              # ← user_config 覆盖 ✅
+    "tensor_parallel_size": 1,                   # ← 系统默认保留
+    "max_model_len": 5120,                       # ← 系统默认保留
+    "trust_remote_code": True,                   # ← 系统默认保留
+    "enable_prefix_caching": True,               # ← user_config 覆盖 ✅
+    "rope_scaling": "{...}",                     # ← user_config 新增 ✅
+}
+```
+
+**Step 5** — `_build_vllm_cmd_parts()` 生成最终命令:
+
+```bash
+python3 -m vllm.entrypoints.openai.api_server \
+    --model /weights/Qwen2.5-7B \
+    --served-model-name qwen2.5-7b \
+    --host 0.0.0.0 --port 18000 \
+    --gpu-memory-utilization 0.85 \
+    --tensor-parallel-size 1 \
+    --max-model-len 5120 \
+    --trust-remote-code \
+    --enable-prefix-caching \
+    --rope-scaling '{"type": "dynamic", "factor": 2.0}'
+```
+
+#### MaaS 层面
+
+1. **上层需要 `--engine` 参数强制传入**
 
    ```shell
    bash /app/wings_start.sh \
-       # 必填项
        --engine vllm \
        --model-name DeepSeek-R1-Distill-Qwen-1.5B \
        --model-path /models/DeepSeek-R1-Distill-Qwen-1.5B \
@@ -86,29 +310,78 @@ procs = _build_processes(port_plan)
        --trust-remote-code
    ```
 
-2. **针对wings-control的Containers，分配/shared-volume目录，同时继承老版本containers所有特性。**
+2. **JSON 透传入口**
+
+   ```shell
+   # 方式一：CLI 内联 JSON
+   bash /app/wings_start.sh \
+       --engine vllm \
+       --config-file '{"gpu_memory_utilization": 0.85, "rope_scaling": "..."}'
+
+   # 方式二：环境变量（K8s 推荐）
+   env:
+     - name: CONFIG_FILE
+       value: '{"gpu_memory_utilization": 0.85}'
+
+   # 方式三：JSON 文件路径
+   bash /app/wings_start.sh \
+       --config-file /path/to/custom_config.json
+   ```
+
+3. **完全透传模式**
 
    ```yaml
-    - name: wings-control
-             volumeMounts:
-               - name: shared-volume
-                 mountPath: /shared-volume
-   
-           
+   env:
+     - name: CONFIG_FORCE
+       value: "true"
+     - name: CONFIG_FILE
+       value: '{"model": "/weights/xxx", "host": "0.0.0.0", "port": 17000, ...全部引擎原生参数}'
+   ```
+
+4. **wings-control Containers 分配 /shared-volume 目录，同时继承老版本 containers 所有特性。**
+
+   ```yaml
+   - name: wings-control
+     volumeMounts:
+       - name: shared-volume
+         mountPath: /shared-volume
    ```
 
 ### 1.3 接口设计
 
+#### CLI/ENV 标准参数（37 字段）
+
 | 接口 | 说明 |
 |------|------|
-| `start_args_compat.py` CLI 入口 | `--engine`, `--model-path`, `--tp-size` 等统一参数 |
-| 环境变量入口 | `ENGINE`, `MODEL_PATH`, `TP_SIZE` 等，等效于 CLI 参数 |
-| `engine_parameter_mapping.json` | 统一参数名 → 各引擎原生参数名的翻译字典 |
+| `start_args_compat.py` CLI 入口 | `--engine`, `--model-path`, `--config-file` 等统一参数 |
+| 环境变量入口 | `ENGINE`, `MODEL_PATH`, `CONFIG_FILE` 等，等效于 CLI 参数 |
+| `engine_parameter_mapping.json` | 统一参数名 → 各引擎原生参数名的翻译字典（仅翻译 CLI 参数，不翻译 config-file 内容） |
 | `/shared-volume/start_command.sh` | 输出产物：生成的 bash 启动脚本 |
+
+#### JSON 透传接口
+
+| 接口 | 说明 |
+|------|------|
+| `--config-file` / `CONFIG_FILE` | 用户自定义 JSON 参数入口，支持内联 JSON 字符串或文件路径 |
+| `CONFIG_FORCE` 环境变量 | `true` 时跳过系统默认合并，用户 JSON 完全独占 engine_config |
 
 ### 1.4 数据结构设计
 
-与解耦前保持一致
+#### LaunchArgs（37 字段，frozen dataclass）
+
+| 分类 | 字段 |
+|------|------|
+| 基础 | `host`, `port`, `model_name`, `model_path`, `engine`, `config_file`, `model_type`, `save_path` |
+| 序列 | `input_length`, `output_length` |
+| 硬件 | `gpu_usage_mode`, `device_count` |
+| 精度 | `dtype`, `kv_cache_dtype`, `quantization`, `quantization_param_path` |
+| 性能 | `gpu_memory_utilization`, `enable_chunked_prefill`, `block_size`, `max_num_seqs`, `seed`, `max_num_batched_tokens` |
+| 高级特性 | `trust_remote_code`, `enable_expert_parallel`, `enable_prefix_caching`, `enable_speculative_decode`, `speculative_decode_model_path`, `enable_rag_acc`, `enable_auto_tool_choice`, `enable_sparse`, `lc_sparse_threshold`, `total_budget`, `local_kvstore_capacity` |
+| 分布式 | `distributed`, `nnodes`, `node_rank`, `head_node_addr`, `distributed_executor_backend` |
+
+#### engine_config 字典
+
+最终传递给 adapter 的参数字典，来源为四层合并（或 `CONFIG_FORCE` 模式下的 user_config 独占）。vLLM/SGLang 场景下所有 key 透传为 CLI 参数，MindIE 场景下只有 adapter 硬编码列表中的 key 生效。
 
 ---
 

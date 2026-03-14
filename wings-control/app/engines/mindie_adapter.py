@@ -563,12 +563,35 @@ def build_start_script(params: Dict[str, Any]) -> str:
         "prefillExpectedTime": engine_config.get("prefillExpectedTime", 1500),
     }
 
+    # ── Collect unconsumed engine_config keys for pass-through ────────────
+    _consumed_keys = {
+        # keys read by sections above (including conditional reads)
+        "port", "ipAddress", "httpsEnabled", "inferMode", "openAiSupport",
+        "tokenTimeout", "e2eTimeout", "allowAllZeroIpListening", "interCommTLSEnabled",
+        "npuDeviceIds", "multiNodesInferEnabled", "interNodeTLSEnabled",
+        "maxSeqLen", "maxInputTokenLen", "truncation",
+        "modelName", "modelWeightPath", "worldSize", "cpuMemSize", "npuMemSize",
+        "trustRemoteCode", "isMOE", "isMTP", "tp", "dp", "moe_tp", "moe_ep", "sp", "cp",
+        "cacheBlockSize", "maxPrefillBatchSize", "maxPrefillTokens",
+        "prefillTimeMsPerReq", "prefillPolicyType", "decodeTimeMsPerReq",
+        "decodePolicyType", "maxBatchSize", "maxIterTimes", "maxPreemptCount",
+        "supportSelectBatch", "maxQueueDelayMicroseconds", "bufferResponseEnabled",
+        "decodeExpectedTime", "prefillExpectedTime",
+        "npu_memory_fraction",
+        # internal / propagated keys
+        "node_ips", "device_count",
+    }
+    extra_overrides = {k: v for k, v in engine_config.items() if k not in _consumed_keys}
+    if extra_overrides:
+        logger.info("[mindie] Extra config-file keys passed through: %s", list(extra_overrides.keys()))
+
     overrides_dict = {
         "server": server_overrides,
         "backend": backend_overrides,
         "model_deploy": model_deploy_overrides,
         "model_config": model_config_overrides,
         "schedule": schedule_overrides,
+        "extra": extra_overrides,
     }
     overrides_json = json.dumps(overrides_dict, indent=2, ensure_ascii=False)
 
@@ -628,7 +651,13 @@ if 'BackendConfig' in config:
     if 'ScheduleConfig' in bc:
         bc['ScheduleConfig'].update(ov['schedule'])
 
-# 4. Write back
+# 4. Apply extra pass-through keys to config root level
+extra = ov.get('extra', {{}})
+if extra:
+    config.update(extra)
+    print(f'[mindie] Applied {{len(extra)}} extra pass-through keys: {{list(extra.keys())}}')
+
+# 5. Write back
 with open(CONFIG_PATH, 'w') as f:
     json.dump(config, f, indent=2, ensure_ascii=False)
 os.chmod(CONFIG_PATH, 0o640)
