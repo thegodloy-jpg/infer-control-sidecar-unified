@@ -37,18 +37,23 @@ from app.core.start_args_compat import LaunchArgs
 
 logger = logging.getLogger(__name__)
 
-# ── Accel 加速包补丁选项默认值 ──────────────────────────────────────────────
-# 当 ENABLE_ACCEL=true 时，sidecar 会向 start_command.sh 注入
-# export WINGS_ENGINE_PATCH_OPTIONS='{"<engine>": [<features>]}'
-# 告诉 wings_engine_patch 包要激活哪些补丁。
+# ── Accel 加速包补丁选项 ────────────────────────────────────────────────────
+# 当 ENABLE_ACCEL=true 时，sidecar 会向 start_command.sh 注入：
+#   1. export WINGS_ENGINE_PATCH_OPTIONS='{...}'
+#   2. python /accel-volume/install.py --features "$WINGS_ENGINE_PATCH_OPTIONS"
 #
-# 默认值按引擎名映射：
-#   vllm / vllm_ascend → {"vllm": ["test_patch"]}
-#   sglang             → {"sglang": ["test_patch"]}
-#   mindie             → {"mindie": ["test_patch"]}
+# WINGS_ENGINE_PATCH_OPTIONS 格式为：
+#   {"<engine>": {"version": "<ver>", "features": ["feat1", "feat2"]}}
 #
-# 可通过 WINGS_ENGINE_PATCH_OPTIONS 环境变量覆盖（JSON 字符串），
-# 此时直接使用用户提供的值，不再按引擎名自动生成。
+# features 列表由以下 5 个高级特性环境变量决定：
+#   ENABLE_SPECULATIVE_DECODE → speculative_decode
+#   ENABLE_SPARSE             → sparse_kv
+#   LMCACHE_OFFLOAD           → lmcache_offload
+#   ENABLE_SOFT_FP8           → soft_fp8
+#   ENABLE_SOFT_FP4           → soft_fp4
+#
+# 可通过 WINGS_ENGINE_PATCH_OPTIONS 环境变量直接覆盖（JSON 字符串），
+# 此时直接使用用户提供的值，不再按特性开关自动生成。
 # ────────────────────────────────────────────────────────────────────────────
 
 # 引擎名到 patch options key 的映射（vllm_ascend 复用 vllm 的补丁体系）
@@ -59,8 +64,14 @@ _ENGINE_PATCH_KEY_MAP = {
     "mindie": "mindie",
 }
 
-# 默认的功能补丁列表（与 Main 项目 command_builder.py 保持一致）
-_DEFAULT_PATCH_FEATURES = ["test_patch"]
+# 高级特性环境变量 → features 名称映射
+_FEATURE_SWITCH_MAP = {
+    "ENABLE_SPECULATIVE_DECODE": "speculative_decode",
+    "ENABLE_SPARSE": "sparse_kv",
+    "LMCACHE_OFFLOAD": "lmcache_offload",
+    "ENABLE_SOFT_FP8": "soft_fp8",
+    "ENABLE_SOFT_FP4": "soft_fp4",
+}
 
 
 def _shell_escape_single_quote(value: str) -> str:
@@ -72,7 +83,8 @@ def _build_accel_env_line(engine: str) -> str:
     """生成 WINGS_ENGINE_PATCH_OPTIONS 的 export 语句。
 
     优先使用 WINGS_ENGINE_PATCH_OPTIONS 环境变量中用户提供的值；
-    若未设置，则根据引擎名自动生成默认值。
+    若未设置，则根据引擎名、ENGINE_VERSION 和高级特性开关自动构建。
+    当没有任何高级特性使能时，返回空字符串（不注入）。
     """
     user_override = os.getenv("WINGS_ENGINE_PATCH_OPTIONS", "").strip()
     if user_override:
@@ -98,11 +110,26 @@ def _build_accel_env_line(engine: str) -> str:
             "skipping WINGS_ENGINE_PATCH_OPTIONS injection.",
             engine,
         )
-        return f"# WINGS_ENGINE_PATCH_OPTIONS: no mapping for engine '{engine}'\n"
+        return ""
 
-    options = json.dumps({patch_key: _DEFAULT_PATCH_FEATURES})
+    # 收集已使能的高级特性
+    features = [
+        feat_name
+        for env_key, feat_name in _FEATURE_SWITCH_MAP.items()
+        if os.getenv(env_key, "").strip().lower() == "true"
+    ]
+    if not features:
+        logger.info(
+            "No advanced features enabled for engine '%s'; "
+            "skipping WINGS_ENGINE_PATCH_OPTIONS injection.",
+            engine,
+        )
+        return ""
+
+    engine_version = os.getenv("ENGINE_VERSION", "").strip()
+    options = json.dumps({patch_key: {"version": engine_version, "features": features}})
     logger.info("Injecting WINGS_ENGINE_PATCH_OPTIONS for engine '%s': %s", engine, options)
-    return f"export WINGS_ENGINE_PATCH_OPTIONS='{options}'\n"
+    return f"export WINGS_ENGINE_PATCH_OPTIONS='{_shell_escape_single_quote(options)}'\n"
 
 
 @dataclass(frozen=True)
@@ -186,8 +213,25 @@ def build_launcher_plan(launch_args: LaunchArgs, port_plan: PortPlan) -> Launche
     # ── Accel 加速包环境注入 ──
     accel_preamble = ""
     if settings.ENABLE_ACCEL:
-        accel_preamble = _build_accel_env_line(engine)
-        logger.info("Accel enabled: injecting WINGS_ENGINE_PATCH_OPTIONS into start script")
+        # ① 生成 WINGS_ENGINE_PATCH_OPTIONS export 语句（可能为空）
+        env_line = _build_accel_env_line(engine)
+        if env_line:
+            # ② 先 export 环境变量，再调用 install.py 安装补丁
+            install_snippet = (
+                "# --- wings-accel: install patches ---\n"
+                + env_line
+                + "if [ -f \"/accel-volume/install.py\" ]; then\n"
+                "    echo '[wings-accel] Installing patches from /accel-volume...'\n"
+                "    python /accel-volume/install.py --features \"$WINGS_ENGINE_PATCH_OPTIONS\"\n"
+                "    echo '[wings-accel] Patch installation complete.'\n"
+                "else\n"
+                "    echo '[wings-accel] WARNING: /accel-volume/install.py not found, skipping patch install.'\n"
+                "fi\n"
+            )
+            accel_preamble = install_snippet
+            logger.info("Accel enabled: injecting WINGS_ENGINE_PATCH_OPTIONS + install.py into start script")
+        else:
+            logger.info("Accel enabled but no advanced features active; skipping patch injection")
     else:
         logger.debug("Accel disabled: skipping WINGS_ENGINE_PATCH_OPTIONS injection")
 

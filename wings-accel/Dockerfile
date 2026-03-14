@@ -9,6 +9,7 @@ COPY . /accel/
 # 设置权限
 RUN chmod +x /accel/install.sh
 RUN chmod +x /accel/wings_engine_patch/install.sh
+RUN chmod +x /accel/install.py
 
 # 默认命令
 CMD ["/bin/sh"]

@@ -72,6 +72,29 @@ spec:
           path: /mnt/models           # CUSTOMIZE: 宿主机模型路径
           type: DirectoryOrCreate
 
+      # ★ Accel 加速卷: wings-accel initContainer → engine 容器的补丁传递通道
+      #   wings-accel 将 /accel/* 复制到此卷，engine 执行 start_command.sh 时安装
+      - name: accel-volume
+        emptyDir:
+          sizeLimit: 500Mi
+
+      # ==================== initContainer 定义 ====================
+      # wings-accel: Alpine 轻量镜像，Pod 启动阶段将补丁文件复制到 accel-volume
+      # 完成后退出，不占用运行时资源
+      initContainers:
+      - name: wings-accel
+        image: wings-accel:latest       # CUSTOMIZE: Accel 版本，与引擎版本对应
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          echo '[wings-accel] Copying accel files to /accel-volume...'
+          cp -r /accel/* /accel-volume/
+          echo '[wings-accel] Accel files ready.'
+        volumeMounts:
+        - name: accel-volume           # ★ 写入补丁文件
+          mountPath: /accel-volume
+
       # ==================== 容器定义 ====================
       containers:
 
@@ -137,6 +160,12 @@ spec:
         - name: WINGS_SKIP_PID_CHECK
           value: "true"               # sidecar 模式跳过 PID 检查
 
+        # --- Accel 加速包 (可选，需同时部署 wings-accel initContainer) ---
+        # - name: ENABLE_ACCEL
+        #   value: "true"             # 启用后 wings-control 会在 start_command.sh 中注入 install.sh 调用
+        # - name: WINGS_ENGINE_PATCH_OPTIONS
+        #   value: '{"vllm":["test_patch"]}'  # 可选：覆盖默认补丁列表
+
         # --- 分布式参数 (单机模式可省略) ---
         # - name: DISTRIBUTED
         #   value: "true"             # 启用分布式模式
@@ -157,6 +186,9 @@ spec:
           mountPath: /shared-volume
         - name: model-volume
           mountPath: /models
+          readOnly: true
+        - name: accel-volume          # ★ 读取补丁特性声明 (ENABLE_ACCEL 时需要)
+          mountPath: /accel-volume
           readOnly: true
 
         # ---- 资源限制 (不需要 GPU) ----
@@ -203,6 +235,8 @@ spec:
           privileged: true            # GPU 设备访问需要
 
         # ---- 启动命令: 轮询等待 → 执行脚本 ----
+        # start_command.sh 由 wings-control 生成，当 ENABLE_ACCEL=true 时
+        # 脚本头部已内嵌 install.sh 调用（无需在此处额外处理 Accel 逻辑）
         command: ["/bin/sh", "-c"]
         args:
         - |
@@ -215,6 +249,7 @@ spec:
           cat /shared-volume/start_command.sh
           echo '---'
           # ★ 执行 wings-control 生成的启动脚本
+          # 若 ENABLE_ACCEL=true，脚本会先执行 /accel-volume/install.sh 安装补丁
           cd /shared-volume && bash start_command.sh
 
         # ---- 挂载卷 ----
@@ -224,6 +259,8 @@ spec:
         - name: model-volume
           mountPath: /models
           readOnly: true
+        - name: accel-volume          # ★ Accel 补丁文件（ENABLE_ACCEL=true 时 install.sh 从此读取）
+          mountPath: /accel-volume
 
         # ---- 资源限制 (需要 GPU) ----
         resources:
