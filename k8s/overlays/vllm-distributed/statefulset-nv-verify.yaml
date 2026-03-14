@@ -27,6 +27,8 @@ spec:
       volumes:
       - name: shared-volume
         emptyDir: {}
+      - name: log-volume
+        emptyDir: {}
       - name: model-volume
         hostPath:
           path: /mnt/models
@@ -94,6 +96,8 @@ spec:
             fieldRef:
               fieldPath: status.podIP
         volumeMounts:
+          - name: log-volume
+            mountPath: /var/log/wings
         - name: shared-volume
           mountPath: /shared-volume
         - name: model-volume
@@ -124,6 +128,8 @@ spec:
         - name: CUDA_VISIBLE_DEVICES
           value: "1"
         volumeMounts:
+          - name: log-volume
+            mountPath: /var/log/wings
         - name: shared-volume
           mountPath: /shared-volume
         - name: model-volume

@@ -100,6 +100,8 @@ spec:
       volumes:
         - name: shared-volume
           emptyDir: {}
+        - name: log-volume
+          emptyDir: {}
         - name: model-volume
           hostPath:
             path: /mnt/cephfs/models
@@ -219,6 +221,8 @@ spec:
               readOnly: true
             - name: ip-exchange
               mountPath: /ip-exchange
+            - name: log-volume
+              mountPath: /var/log/wings
           resources:
             requests:
               cpu: "500m"
@@ -297,6 +301,8 @@ spec:
               mountPath: /dev/shm
             - name: ip-exchange
               mountPath: /ip-exchange
+            - name: log-volume
+              mountPath: /var/log/wings
           resources:
             requests:
               cpu: "4"

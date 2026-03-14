@@ -120,6 +120,8 @@ spec:
       # sidecar 与 engine 共享: start_command.sh 传递
       - name: shared-volume
         emptyDir: {}
+      - name: log-volume
+        emptyDir: {}
 
       # 模型目录 (hostPath)
       - name: model-volume
@@ -253,6 +255,8 @@ spec:
         - name: WINGS_SKIP_PID_CHECK
           value: "true"
         volumeMounts:
+          - name: log-volume
+            mountPath: /var/log/wings
         - name: shared-volume
           mountPath: /shared-volume
         - name: model-volume
@@ -305,6 +309,8 @@ spec:
           export LD_LIBRARY_PATH=/mnt/nvidia-libs:${LD_LIBRARY_PATH:-}
           cd /shared-volume && bash start_command.sh
         volumeMounts:
+          - name: log-volume
+            mountPath: /var/log/wings
         - name: shared-volume
           mountPath: /shared-volume
         - name: model-volume

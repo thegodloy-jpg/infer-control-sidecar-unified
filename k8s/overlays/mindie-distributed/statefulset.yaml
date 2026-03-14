@@ -32,6 +32,8 @@ spec:
       volumes:
         - name: shared-volume
           emptyDir: {}
+        - name: log-volume
+          emptyDir: {}
         - name: model-volume
           hostPath:
             path: /mnt/cephfs/models                    # CUSTOMIZE
@@ -113,6 +115,8 @@ spec:
             - name: model-volume
               mountPath: /models
               readOnly: true
+            - name: log-volume
+              mountPath: /var/log/wings
           resources:
             requests: { cpu: "500m", memory: "1Gi" }
             limits: { cpu: "2", memory: "4Gi" }
@@ -169,6 +173,8 @@ spec:
               readOnly: true
             - name: dshm
               mountPath: /dev/shm
+            - name: log-volume
+              mountPath: /var/log/wings
           resources:
             requests: { cpu: "4", memory: "16Gi" }
             limits: { cpu: "24", memory: "64Gi" }

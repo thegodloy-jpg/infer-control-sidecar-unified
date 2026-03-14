@@ -235,5 +235,10 @@ def build_launcher_plan(launch_args: LaunchArgs, port_plan: PortPlan) -> Launche
     else:
         logger.debug("Accel disabled: skipping WINGS_ENGINE_PATCH_OPTIONS injection")
 
-    command = "#!/usr/bin/env bash\nset -euo pipefail\n" + accel_preamble + script_body
+    command = (
+        "#!/usr/bin/env bash\nset -euo pipefail\n"
+        "mkdir -p /var/log/wings\n"
+        "exec > >(tee -a /var/log/wings/engine.log) 2>&1\n"
+        + accel_preamble + script_body
+    )
     return LauncherPlan(command=command, merged_params=merged, hardware_env=hardware)

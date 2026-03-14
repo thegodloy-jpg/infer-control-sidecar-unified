@@ -21,6 +21,8 @@ spec:
       volumes:
       - name: shared-volume
         emptyDir: {}
+      - name: log-volume
+        emptyDir: {}
       - name: model-volume
         hostPath:
           path: /mnt/models
@@ -65,6 +67,8 @@ spec:
         - name: BACKEND_URL
           value: "http://127.0.0.1:17000"
         volumeMounts:
+          - name: log-volume
+            mountPath: /var/log/wings
         - name: shared-volume
           mountPath: /shared-volume
         - name: model-volume
@@ -96,6 +100,8 @@ spec:
         - name: GLOO_SOCKET_IFNAME
           value: "lo"
         volumeMounts:
+          - name: log-volume
+            mountPath: /var/log/wings
         - name: shared-volume
           mountPath: /shared-volume
         - name: model-volume

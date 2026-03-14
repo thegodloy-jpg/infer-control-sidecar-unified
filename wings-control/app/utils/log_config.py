@@ -38,6 +38,7 @@
 from __future__ import annotations
 
 import logging
+import logging.handlers
 import os
 import sys
 
@@ -62,6 +63,19 @@ LOGGER_LAUNCHER = "wings-launcher"
 LOGGER_PROXY = "wings-proxy"
 LOGGER_HEALTH = "wings-health"
 
+# ---------------------------------------------------------------------------
+# 日志文件配置
+# ---------------------------------------------------------------------------
+
+#: 日志文件路径（环境变量覆盖）
+LOG_FILE_PATH = os.getenv("LOG_FILE_PATH", "/var/log/wings/wings_control.log")
+
+#: 单文件最大体积 50MB
+LOG_MAX_BYTES = 50 * 1024 * 1024
+
+#: 保留 5 个备份
+LOG_BACKUP_COUNT = 5
+
 
 def setup_root_logging(level: str | None = None) -> None:
     """一次性配置 root logger，确保全局统一格式。
@@ -69,16 +83,42 @@ def setup_root_logging(level: str | None = None) -> None:
     使用 ``logging.basicConfig(force=True)`` 覆盖已有配置，
     保证无论导入顺序如何，格式始终一致。
 
+    同时尝试添加 RotatingFileHandler 写入 LOG_FILE_PATH，
+    若目录不可写则跳过（仅保留 stderr 输出）。
+
     Args:
         level: 日志级别字符串 (DEBUG/INFO/WARNING/ERROR)。
                未指定时读取 LOG_LEVEL 环境变量，默认 INFO。
     """
     if level is None:
         level = os.getenv("LOG_LEVEL", "INFO")
+    log_level = getattr(logging, level.upper(), logging.INFO)
+
     logging.basicConfig(
-        level=getattr(logging, level.upper(), logging.INFO),
+        level=log_level,
         format=LOG_FORMAT,
         datefmt=LOG_DATE_FORMAT,
         stream=sys.stderr,
         force=True,
     )
+
+    # 尝试添加 RotatingFileHandler — 写入共享日志卷
+    log_dir = os.path.dirname(LOG_FILE_PATH)
+    try:
+        os.makedirs(log_dir, exist_ok=True)
+        file_handler = logging.handlers.RotatingFileHandler(
+            LOG_FILE_PATH,
+            maxBytes=LOG_MAX_BYTES,
+            backupCount=LOG_BACKUP_COUNT,
+            encoding="utf-8",
+        )
+        file_handler.setLevel(log_level)
+        file_handler.setFormatter(
+            logging.Formatter(LOG_FORMAT, datefmt=LOG_DATE_FORMAT)
+        )
+        logging.getLogger().addHandler(file_handler)
+    except OSError:
+        # 目录不存在或不可写（如未挂载 log-volume），仅保留 stderr
+        logging.getLogger().warning(
+            "Cannot write log file to %s, file logging disabled", LOG_FILE_PATH
+        )

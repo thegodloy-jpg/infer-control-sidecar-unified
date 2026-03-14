@@ -78,6 +78,13 @@ spec:
         emptyDir:
           sizeLimit: 500Mi
 
+      # ★ 日志共享卷: wings-control 和 engine 共享的日志目录
+      #   wings-control 写入 wings_control.log + wings_start.log
+      #   engine 写入 engine.log，两个容器可互读
+      - name: log-volume
+        emptyDir:
+          sizeLimit: 1Gi
+
       # ==================== initContainer 定义 ====================
       # wings-accel: Alpine 轻量镜像，Pod 启动阶段将补丁文件复制到 accel-volume
       # 完成后退出，不占用运行时资源
@@ -190,6 +197,8 @@ spec:
         - name: accel-volume          # ★ 读取补丁特性声明 (ENABLE_ACCEL 时需要)
           mountPath: /accel-volume
           readOnly: true
+        - name: log-volume             # ★ 共享日志卷
+          mountPath: /var/log/wings
 
         # ---- 资源限制 (不需要 GPU) ----
         resources:
@@ -259,8 +268,10 @@ spec:
         - name: model-volume
           mountPath: /models
           readOnly: true
-        - name: accel-volume          # ★ Accel 补丁文件（ENABLE_ACCEL=true 时 install.sh 从此读取）
+        - name: accel-volume          # ★ Accel 补丁文件（ENABLE_ACCEL=true 时 install.py 从此读取）
           mountPath: /accel-volume
+        - name: log-volume             # ★ 共享日志卷
+          mountPath: /var/log/wings
 
         # ---- 资源限制 (需要 GPU) ----
         resources:

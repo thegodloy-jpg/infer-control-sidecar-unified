@@ -26,6 +26,8 @@ spec:
             type: DirectoryOrCreate
         - name: accel-volume
           emptyDir: {}                    # accel 初始化容器产物
+        - name: log-volume
+          emptyDir: {}                    # wings-control 和 engine 共享日志卷
 
       # ---- 初始化容器：拷贝 accel 文件 ----
       initContainers:
@@ -100,6 +102,8 @@ spec:
             - name: model-volume
               mountPath: /models
               readOnly: false
+            - name: log-volume
+              mountPath: /var/log/wings
           resources:
             requests:
               cpu: "500m"
@@ -169,6 +173,8 @@ spec:
               readOnly: false
             - name: accel-volume
               mountPath: /accel-volume
+            - name: log-volume
+              mountPath: /var/log/wings
           resources:
             requests:
               cpu: "2"

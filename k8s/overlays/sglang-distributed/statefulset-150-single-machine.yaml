@@ -91,6 +91,8 @@ spec:
       volumes:
       - name: shared-volume
         emptyDir: {}
+      - name: log-volume
+        emptyDir: {}
       - name: model-volume
         hostPath:
           path: /mnt/models
@@ -192,6 +194,8 @@ spec:
             fieldRef:
               fieldPath: status.podIP
         volumeMounts:
+          - name: log-volume
+            mountPath: /var/log/wings
         - name: shared-volume
           mountPath: /shared-volume
         - name: model-volume
@@ -254,6 +258,8 @@ spec:
           echo '---'
           cd /shared-volume && bash start_command.sh
         volumeMounts:
+          - name: log-volume
+            mountPath: /var/log/wings
         - name: shared-volume
           mountPath: /shared-volume
         - name: model-volume

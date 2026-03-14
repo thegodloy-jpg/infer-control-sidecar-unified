@@ -26,6 +26,8 @@ spec:
           hostPath:
             path: /mnt/models                           # CUSTOMIZE
             type: DirectoryOrCreate
+        - name: log-volume
+          emptyDir: {}
 
       containers:
         - name: wings-control
@@ -45,6 +47,8 @@ spec:
             - name: model-volume
               mountPath: /models
               readOnly: true
+            - name: log-volume
+              mountPath: /var/log/wings
           resources:
             requests: { cpu: "500m", memory: "1Gi" }
             limits: { cpu: "2", memory: "4Gi" }
@@ -73,6 +77,8 @@ spec:
             - name: model-volume
               mountPath: /models
               readOnly: true
+            - name: log-volume
+              mountPath: /var/log/wings
           resources:
             requests: { cpu: "4", memory: "16Gi" }
             limits: { cpu: "16", memory: "48Gi" }
