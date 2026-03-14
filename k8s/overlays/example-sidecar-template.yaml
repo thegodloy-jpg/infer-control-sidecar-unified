@@ -162,9 +162,9 @@ spec:
 
         # --- Accel 加速包 (可选，需同时部署 wings-accel initContainer) ---
         # - name: ENABLE_ACCEL
-        #   value: "true"             # 启用后 wings-control 会在 start_command.sh 中注入 install.sh 调用
+        #   value: "true"             # 启用后 wings-control 会在 start_command.sh 中注入 install.py 调用
         # - name: WINGS_ENGINE_PATCH_OPTIONS
-        #   value: '{"vllm":["test_patch"]}'  # 可选：覆盖默认补丁列表
+        #   value: '{"vllm":{"version":"0.12.rc1","features":["speculative_decode","sparse_kv"]}}'  # 可选：覆盖自动生成的值
 
         # --- 分布式参数 (单机模式可省略) ---
         # - name: DISTRIBUTED

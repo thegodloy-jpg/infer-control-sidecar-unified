@@ -139,19 +139,7 @@ spec:
                 sleep 1
               done
 
-              # 检查是否启用加速
-              if [ "$ENABLE_ACCEL" = "true" ]; then
-                echo "Accel is enabled, installing accel packages..."
-                cd /accel-volume
-                #1.安装
-                python install.py   --accel
-                
-                echo "Accel packages installed successfully"
-              else
-                echo "Accel is disabled, skipping installation"
-              fi
-
-              # 读取并执行启动命令（后台运行）
+              # 执行启动命令（补丁安装已由 wings-control 注入到 start_command.sh 头部）
               echo "Start command found, executing..."
               cd /shared-volume
               bash start_command.sh &
@@ -171,8 +159,6 @@ spec:
               echo "Engine exited with code $EXIT_CODE"
               exit $EXIT_CODE
           env:
-            - name: ENABLE_ACCEL
-              value: "true"
             - name: ENABLE_ACCEL
               value: "true"
           volumeMounts:
