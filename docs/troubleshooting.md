@@ -235,15 +235,86 @@ kubectl exec <pod> -c engine -n wings-control -- \
 
 ## 日志位置
 
+### kubectl 远程查看（stdout）
+
 | 组件 | 日志来源 | 前缀 |
 |------|----------|------|
-| Launcher | Sidecar 容器 stdout | `[launcher]` |
-| Proxy | Sidecar 容器 stdout | uvicorn 日志 |
-| Health | Sidecar 容器 stdout | `[health]` |
+| Launcher | Sidecar 容器 stdout | `[wings-launcher]` |
+| Proxy | Sidecar 容器 stdout | `[wings-proxy]` |
+| Health | Sidecar 容器 stdout | `[wings-health]` |
 | Engine | Engine 容器 stdout | 引擎原生日志 |
-| PID 文件 | `/var/log/wings/wings.txt` | 第一行为 PID |
 
 ```bash
 # 一次性查看所有容器日志
 kubectl logs <pod> -n wings-control --all-containers=true --tail=50
+
+# 实时流式查看引擎日志
+kubectl logs -f <pod> -c engine -n wings-control
+
+# 实时流式查看 sidecar 日志
+kubectl logs -f <pod> -c wings-control -n wings-control
+```
+
+### 共享日志卷（Pod 内 `/var/log/wings/`）
+
+wings-control 和 engine 容器通过 `log-volume` (emptyDir) 共享 `/var/log/wings/` 目录，Pod 存活期间日志持续保存。
+
+| 日志文件 | 写入者 | 内容 | 滚动策略 |
+|---------|--------|------|---------|
+| `wings_control.log` | Python `RotatingFileHandler` | wings-launcher / wings-proxy / wings-health 结构化日志 | 50MB × 5 备份 |
+| `engine.log` | `start_command.sh` 的 `tee -a` | 推理引擎全部 stdout/stderr（模型加载、推理请求、GPU 指标） | 无自动滚动 |
+| `wings.txt` | wings-control Python 进程 | 引擎 PID（第一行） | 无滚动 |
+
+```bash
+# 查看日志文件列表和大小
+kubectl exec <pod> -c wings-control -n wings-control -- ls -lh /var/log/wings/
+
+# 聚合查看所有日志（任一容器内执行）
+kubectl exec <pod> -c wings-control -n wings-control -- tail -f /var/log/wings/*.log
+
+# 只看引擎日志
+kubectl exec <pod> -c wings-control -n wings-control -- tail -100 /var/log/wings/engine.log
+
+# 查看 proxy 请求日志
+kubectl exec <pod> -c wings-control -n wings-control -- grep wings-proxy /var/log/wings/wings_control.log
+
+# 查看健康检查日志
+kubectl exec <pod> -c wings-control -n wings-control -- grep wings-health /var/log/wings/wings_control.log
+```
+
+### 日志持久化（可选）
+
+默认 `log-volume` 使用 `emptyDir`，Pod 删除后日志丢失。如需持久化，修改 K8s 模板中的 volume 定义：
+
+```yaml
+# 方式一：hostPath（单机场景）
+volumes:
+  - name: log-volume
+    hostPath:
+      path: /var/log/wings-pods/<pod-name>
+      type: DirectoryOrCreate
+
+# 方式二：PVC（分布式场景）
+volumes:
+  - name: log-volume
+    persistentVolumeClaim:
+      claimName: wings-logs-pvc
+```
+
+### 分布式场景日志
+
+StatefulSet 多 Pod 跨节点部署时，每个 Pod 有独立的 `/var/log/wings/` 目录。跨 Pod 日志需逐个查看：
+
+```bash
+# 查看 master (rank 0) 日志
+kubectl exec infer-0 -c wings-control -n wings-control -- tail -f /var/log/wings/*.log
+
+# 查看 worker (rank 1) 日志
+kubectl exec infer-1 -c wings-control -n wings-control -- tail -f /var/log/wings/*.log
+
+# 批量查看所有 Pod 引擎日志
+for pod in $(kubectl get pods -n wings-control -l app=infer -o name); do
+  echo "=== $pod ==="
+  kubectl exec $pod -c engine -n wings-control -- tail -20 /var/log/wings/engine.log
+done
 ```
