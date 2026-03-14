@@ -1,13 +1,69 @@
 # 故障排查指南
 
-## 快速诊断流程
+## 快速诊断流程图
 
+```mermaid
+flowchart TD
+    START["Pod 异常"] --> CHECK_STATUS["kubectl get pods -n wings-control -w"]
+    CHECK_STATUS --> |"CrashLoopBackOff"| CRASH["§1 CrashLoopBackOff"]
+    CHECK_STATUS --> |"Running 但不可用"| CHECK_HEALTH["curl :19000/health"]
+    CHECK_HEALTH --> |"201"| H201["§2 启动中 (201)"]
+    CHECK_HEALTH --> |"502"| H502["§3 启动失败 (502)"]
+    CHECK_HEALTH --> |"503"| H503["§4 降级 (503)"]
+    CHECK_HEALTH --> |"Connection refused"| PROXY["§5 代理不通"]
+    
+    CRASH --> LOG_SC["kubectl logs <pod> -c wings-control"]
+    H201 --> LOG_EN["kubectl logs <pod> -c engine"]
+    H502 --> LOG_EN
+    H503 --> PID["cat /var/log/wings/wings.txt"]
+    PROXY --> ENV["检查 BACKEND_URL"]
 ```
-1. kubectl get pods -n wings-control -w          # Pod 状态
-2. curl http://<NODE_IP>:19000/health          # 健康检查
-3. kubectl logs <pod> -c wings-control -n wings-control   # Sidecar 日志
-4. kubectl logs <pod> -c engine -n wings-control         # 引擎日志
+
+### 命令速查
+
+```bash
+# 1. Pod 状态
+kubectl get pods -n wings-control -w
+
+# 2. 健康检查
+curl http://<NODE_IP>:19000/health
+
+# 3. Sidecar 日志
+kubectl logs <pod> -c wings-control -n wings-control
+
+# 4. 引擎日志
+kubectl logs <pod> -c engine -n wings-control
+
+# 5. 聚合日志（Pod 内文件）
+kubectl exec <pod> -c wings-control -n wings-control -- tail -f /var/log/wings/*.log
 ```
+
+---
+
+## 健康状态机
+
+```mermaid
+stateDiagram-v2
+    [*] --> Starting: Pod 启动
+    Starting --> Ready: PID 存活 + /health 返回 200
+    Starting --> Failed: 超过 STARTUP_GRACE_MS 仍未就绪
+    Ready --> Degraded: 连续失败 ≥ FAIL_THRESHOLD<br/>且超过 FAIL_GRACE_MS
+    Degraded --> Ready: /health 恢复 200
+
+    Starting: status=0, HTTP 201
+    Ready: status=1, HTTP 200
+    Failed: status=0, HTTP 502
+    Degraded: status=-1, HTTP 503
+```
+
+### 健康检查响应对照表
+
+| HTTP 状态码 | 内部 status | phase | 含义 | 对应章节 |
+|:-----------:|:-----------:|-------|------|----------|
+| **201** | 0 | `starting` | 引擎正在加载模型（正常过渡状态） | §2 |
+| **200** | 1 | `ready` | 引擎就绪，可接收推理请求 | — |
+| **502** | 0 | `starting` | 超过宽限期仍未就绪 | §3 |
+| **503** | -1 | `degraded` | 曾就绪后降级（引擎崩溃/超时） | §4 |
 
 ---
 
@@ -205,6 +261,28 @@ kubectl exec <pod> -c engine -n wings-control -- \
 
 ## 环境变量调优
 
+### 参数关系图
+
+```mermaid
+flowchart LR
+    subgraph "健康检查循环"
+        POLL["POLL_INTERVAL_MS<br/>(5000ms)"] --> PROBE["探测 /health"]
+        PROBE --> |"超时"| TIMEOUT["HEALTH_TIMEOUT_MS<br/>(5000ms)"]
+        PROBE --> |"连续失败"| THRESHOLD["FAIL_THRESHOLD<br/>(5次)"]
+        THRESHOLD --> DEGRADE["返回 503"]
+    end
+    
+    subgraph "启动保护"
+        GRACE["STARTUP_GRACE_MS<br/>(3600000ms = 60min)"]
+        GRACE --> |"超时未就绪"| FAIL502["返回 502"]
+    end
+    
+    subgraph "代理转发"
+        REQ["推理请求"] --> BACKEND["BACKEND_URL → :17000"]
+        BACKEND --> |"失败"| RETRY["RETRY_TRIES (3次)<br/>间隔 RETRY_INTERVAL_MS (100ms)"]
+    end
+```
+
 ### 健康检查参数
 
 | 变量 | 默认值 | 说明 |
@@ -219,21 +297,57 @@ kubectl exec <pod> -c engine -n wings-control -- \
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `MAX_CONN` | (见 settings.py) | httpx 最大连接数 |
-| `RETRY_TRIES` | (见 settings.py) | 重试次数 |
-| `RETRY_INTERVAL_MS` | (见 settings.py) | 重试间隔 (ms) |
+| `HTTPX_MAX_CONNECTIONS` | 2048 | httpx 最大连接数 |
+| `RETRY_TRIES` | 3 | 重试次数（含首次） |
+| `RETRY_INTERVAL_MS` | 100 | 重试间隔 (ms) |
 
 ### SGLang 专用
 
+SGLang 流式场景下超时更常见，采用「宽容但可退化」计分机制：
+
+```mermaid
+flowchart LR
+    FAIL["探测失败"] --> SCORE["fail_score 累加"]
+    SCORE --> |"≥ SGLANG_FAIL_BUDGET (6.0)"| DEG503["触发 503"]
+    TIMEOUT["连续超时"] --> |"≥ 阈值"| DEG503
+    SILENCE["静默期"] --> |"≥ SGLANG_SILENCE_MAX_MS (60s)"| DEG503
+    GRACE_S["PID 宽限"] --> |"≤ SGLANG_PID_GRACE_MS (30s)"| TOLERATE["容忍失败"]
+```
+
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `SGLANG_FAIL_BUDGET` | 6.0 | 失败预算 (权重) |
-| `SGLANG_PID_GRACE_MS` | 30000 | PID 宽限期 |
-| `SGLANG_SILENCE_MAX_MS` | 60000 | 静默最大时间 → 503 |
+| `SGLANG_FAIL_BUDGET` | 6.0 | 失败预算 (权重)，累积到此值触发 503 |
+| `SGLANG_PID_GRACE_MS` | 30000 | PID 宽限期 (ms) |
+| `SGLANG_SILENCE_MAX_MS` | 60000 | 静默最大时间 (ms) → 503 |
 
 ---
 
-## 日志位置
+## 日志架构
+
+### 日志写入流向
+
+```mermaid
+flowchart TD
+    subgraph "wings-control 容器"
+        WS["wings_start.sh"] --> |"exec tee"| WSL["wings_start.log"]
+        PY["Python 进程"] --> |"RotatingFileHandler<br/>50MB × 5"| WCL["wings_control.log"]
+        PY --> |"StreamHandler"| STDOUT1["stdout → kubectl logs"]
+    end
+    
+    subgraph "engine 容器"
+        SC["start_command.sh"] --> |"exec tee -a"| EL["engine.log"]
+        SC --> |"stdout"| STDOUT2["stdout → kubectl logs"]
+    end
+    
+    subgraph "共享日志卷 /var/log/wings/ (emptyDir)"
+        WSL
+        WCL
+        EL
+    end
+    
+    STDOUT1 --> KUBECTL["kubectl logs --all-containers"]
+    STDOUT2 --> KUBECTL
+```
 
 ### kubectl 远程查看（stdout）
 
@@ -261,9 +375,25 @@ wings-control 和 engine 容器通过 `log-volume` (emptyDir) 共享 `/var/log/w
 
 | 日志文件 | 写入者 | 内容 | 滚动策略 |
 |---------|--------|------|---------|
+| `wings_start.log` | `wings_start.sh` 的 `exec tee` | shell 进程全量输出（涵盖 Python、pip、报错等） | 按时间戳备份，保留 5 个 |
 | `wings_control.log` | Python `RotatingFileHandler` | wings-launcher / wings-proxy / wings-health 结构化日志 | 50MB × 5 备份 |
 | `engine.log` | `start_command.sh` 的 `tee -a` | 推理引擎全部 stdout/stderr（模型加载、推理请求、GPU 指标） | 无自动滚动 |
 | `wings.txt` | wings-control Python 进程 | 引擎 PID（第一行） | 无滚动 |
+
+#### 日志目录结构
+
+```
+/var/log/wings/
+├── wings_start.log                      ← 当前 shell 全量日志
+├── wings_start.log.2026-03-14_10-00-00  ← 备份 (上次启动)
+├── wings_control.log                    ← 当前 Python 结构化日志
+├── wings_control.log.1                  ← 滚动备份 1 (最近 50MB)
+├── wings_control.log.2                  ← 滚动备份 2
+├── engine.log                           ← 引擎全量输出
+└── wings.txt                            ← 引擎 PID
+```
+
+#### 使用样例
 
 ```bash
 # 查看日志文件列表和大小
@@ -286,6 +416,19 @@ kubectl exec <pod> -c wings-control -n wings-control -- grep wings-health /var/l
 
 默认 `log-volume` 使用 `emptyDir`，Pod 删除后日志丢失。如需持久化，修改 K8s 模板中的 volume 定义：
 
+```mermaid
+flowchart LR
+    subgraph "默认（开发/测试）"
+        ED["emptyDir"] --> |"Pod 删除"| LOST["日志丢失"]
+    end
+    subgraph "方式一（单机生产）"
+        HP["hostPath"] --> |"Pod 删除"| KEEP1["节点保留日志"]
+    end
+    subgraph "方式二（分布式生产）"
+        PVC["PVC"] --> |"Pod 删除"| KEEP2["存储卷保留日志"]
+    end
+```
+
 ```yaml
 # 方式一：hostPath（单机场景）
 volumes:
@@ -302,6 +445,23 @@ volumes:
 ```
 
 ### 分布式场景日志
+
+```mermaid
+flowchart LR
+    subgraph "Master Pod (rank=0)"
+        M_LOG["/var/log/wings/<br/>wings_control.log<br/>engine.log"]
+    end
+    subgraph "Worker Pod (rank=1)"
+        W_LOG["/var/log/wings/<br/>wings_control.log<br/>engine.log"]
+    end
+    subgraph "Worker Pod (rank=2)"
+        W2_LOG["/var/log/wings/<br/>wings_control.log<br/>engine.log"]
+    end
+    
+    M_LOG -.->|"各 Pod 独立"| NOTE["跨 Pod 日志需逐个查看"]
+    W_LOG -.-> NOTE
+    W2_LOG -.-> NOTE
+```
 
 StatefulSet 多 Pod 跨节点部署时，每个 Pod 有独立的 `/var/log/wings/` 目录。跨 Pod 日志需逐个查看：
 
