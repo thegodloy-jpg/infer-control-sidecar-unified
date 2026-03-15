@@ -1,58 +1,48 @@
-# -----------------------------------------------------------------------------
-# 文件: core/hardware_detect.py
-# 用途: 硬件环境探测模块，为 config_loader 提供设备类型和数量信息。
-#
-# 工作原理:
-#   在 sidecar 架构中，推理引擎和 sidecar 分属不同容器，因此 sidecar
-#   无法直接访问 GPU/NPU 硬件。本模块改为从环境变量读取硬件信息，
-#   而不是直接调用 torch/pynvml 进行探测。
-#
-# 支持的环境变量:
-#   - WINGS_DEVICE / DEVICE / HARDWARE_TYPE : 设备类型，可选 nvidia|ascend，默认 nvidia
-#   - WINGS_DEVICE_COUNT / DEVICE_COUNT : 设备数量，默认 1
-#   - WINGS_DEVICE_NAME           : 设备型号名称（可选，如 "Ascend910B"）
-#   - WINGS_HARDWARE_FILE         : 硬件信息 JSON 文件路径（可选，
-#                                   默认 /shared-volume/hardware_info.json）
-#
-# 探测优先级:
-#   JSON 文件 → 环境变量 → 默认值
-#
-# 输出格式:
-#   {
-#     "device": "nvidia" | "ascend",
-#     "count": int,
-#     "details": [                  # 每张卡一条记录
-#       {
-#         "device_id": int,
-#         "name": str,
-#         "total_memory": float,    # GB
-#         "used_memory": float,     # GB
-#         "free_memory": float,     # GB
-#         "util": int,              # GPU 利用率 %（仅 NVIDIA）
-#         "vendor": str             # "Nvidia" 或 "Ascend"
-#       }
-#     ],
-#     "units": "GB"
-#   }
-#
-# Sidecar 契约:
-#   - 探测应使用最佳努力策略，不应因任何探测失败而崩溃
-#   - 避免破坏异构节点（混合 GPU/NPU 环境）的兼容性
-# -----------------------------------------------------------------------------
 # Copyright (c) xFusion Digital Technologies Co., Ltd. 2025-2025. All rights reserved.
 # -*- coding: utf-8 -*-
 
-"""硬件环境静态探测模块。
+"""硬件环境静态探测模块 (core/hardware_detect.py)。
 
-在 sidecar 架构中，推理引擎和控制容器分属不同容器，无法直接用
- torch/pynvml 探测硬件。改用环境变量驱动：
+为 config_loader 提供设备类型和数量信息。
 
-- WINGS_HARDWARE_FILE: 硬件信息 JSON 文件路径（优先，默认 /shared-volume/hardware_info.json）
-- WINGS_DEVICE / DEVICE / HARDWARE_TYPE: 设备类型，支持 nvidia|ascend，默认 nvidia
-- WINGS_DEVICE_COUNT / DEVICE_COUNT: 设备数量，默认 1
-- WINGS_DEVICE_NAME: 设备型号名称（可选）
+工作原理:
+    在 sidecar 架构中，推理引擎和 sidecar 分属不同容器，因此 sidecar
+    无法直接访问 GPU/NPU 硬件。本模块改为从环境变量读取硬件信息，
+    而不是直接调用 torch/pynvml 进行探测。
 
-探测优先级: JSON 文件 → 环境变量 → 默认值
+支持的环境变量:
+    - WINGS_HARDWARE_FILE: 硬件信息 JSON 文件路径
+      （优先，默认 /shared-volume/hardware_info.json）
+    - WINGS_DEVICE / DEVICE / HARDWARE_TYPE:
+      设备类型，支持 nvidia|ascend，默认 nvidia
+    - WINGS_DEVICE_COUNT / DEVICE_COUNT: 设备数量，默认 1
+    - WINGS_DEVICE_NAME: 设备型号名称（可选，如 "Ascend910B"）
+
+探测优先级:
+    JSON 文件 → 环境变量 → 默认值
+
+输出格式示例::
+
+    {
+        "device": "nvidia" | "ascend",
+        "count": int,
+        "details": [
+            {
+                "device_id": int,
+                "name": str,
+                "total_memory": float,   # GB
+                "used_memory": float,    # GB
+                "free_memory": float,    # GB
+                "util": int,             # GPU 利用率 % (仅 NVIDIA)
+                "vendor": str            # "Nvidia" 或 "Ascend"
+            }
+        ],
+        "units": "GB"
+    }
+
+Sidecar 契约:
+    - 探测应使用最佳努力策略，不应因任何探测失败而崩溃
+    - 避免破坏异构节点（混合 GPU/NPU 环境）的兼容性
 """
 
 import json

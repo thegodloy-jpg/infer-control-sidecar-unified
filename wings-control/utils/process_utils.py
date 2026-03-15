@@ -1,4 +1,4 @@
-﻿# =============================================================================
+# =============================================================================
 # 文件: utils/process_utils.py
 # 用途: 进程管理辅助方法，用于启动等待、PID 记录、输出流处理
 # 状态: 活跃，在面向进程的路径中被复用
@@ -152,31 +152,25 @@ def log_process_pid(
 
 
 def log_stream(process):
-    def _log_stream():
+    def _log_stdout():
         try:
-            while process.poll() is None:
-                # readline
-                stdout_line = process.stdout.readline()
-                if stdout_line:
-                    logger.info(stdout_line.strip())
-
-                stderr_line = process.stderr.readline()
-                if stderr_line:
-                    logger.error(stderr_line.strip())
-
-            #
             for line in process.stdout:
                 if line.strip():
                     logger.info(line.strip())
+        except Exception as e:
+            logger.error("Log stdout error: %s", e)
+
+    def _log_stderr():
+        try:
             for line in process.stderr:
                 if line.strip():
                     logger.error(line.strip())
         except Exception as e:
-            logger.error("Log stream error: %s", e)
-        finally:
-            logger.info("Service log stream ended")
+            logger.error("Log stderr error: %s", e)
 
-    log_thread = threading.Thread(target=_log_stream, daemon=False)
-    log_thread.start()
+    stdout_thread = threading.Thread(target=_log_stdout, daemon=True)
+    stderr_thread = threading.Thread(target=_log_stderr, daemon=True)
+    stdout_thread.start()
+    stderr_thread.start()
 
-    logger.info("Service started successfully. Process and log thread are running independently.")
+    logger.info("Service started successfully. Process and log threads are running independently.")

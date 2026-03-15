@@ -42,9 +42,12 @@ def _env_int(name: str, default: int) -> int:
 
 
 def _env_float(name: str, default: float) -> float:
-    """从环境变量读取浮点值，解析失败时返回默认值。"""
+    """从环境变量读取浮点值，解析失败或值为 inf/nan 时返回默认值。"""
     try:
-        return float(_env(name, str(default)))
+        val = float(_env(name, str(default)))
+        if not __import__('math').isfinite(val):
+            return default
+        return val
     except ValueError:
         return default
 
@@ -223,7 +226,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_bool(p, "--distributed", "DISTRIBUTED", False)
 
     p.add_argument("--nnodes", type=int, default=_env_int("NNODES", 1))
-    p.add_argument("--node-rank", type=int, default=_env_int("NODE_RANK", 0))
+    p.add_argument("--node-rank", type=int, default=0)  # Master 分发时动态注入
     p.add_argument("--head-node-addr", default=_env("HEAD_NODE_ADDR", "127.0.0.1"))
     p.add_argument("--distributed-executor-backend", default=_env("DISTRIBUTED_EXECUTOR_BACKEND", "ray"))
     return p

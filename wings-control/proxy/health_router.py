@@ -1,4 +1,4 @@
-﻿# =============================================================================
+# =============================================================================
 # 文件: proxy/health.py
 # 用途: 健康状态机核心，探测后端/代理信号并计算就绪阶段
 # 状态: 活跃，复用自 wings 项目的健康检查核心
@@ -139,7 +139,11 @@ async def _strict_probe_backend_health(client: httpx.AsyncClient) -> Tuple[bool,
     """严格探测 backend `/health` 端点，返回 (ok, http_code, latency_ms, err_kind) 四元组。"""
     url = build_backend_url("/health")
     if _is_mindie():
-        url = _force_port(url, os.getenv("MINDIE_HEALTH_HOST", "127.0.0.2"), int(os.getenv("MINDIE_HEALTH_PORT", "1026")))  # mindie health probe
+        url = _force_port(
+            url,
+            os.getenv("MINDIE_HEALTH_HOST", "127.0.0.2"),
+            int(os.getenv("MINDIE_HEALTH_PORT", "1026")),
+        )  # mindie health probe
 
     t0 = time.perf_counter()
     code = 0
@@ -590,7 +594,11 @@ async def _send_warmup_request() -> None:
 
     # HTTP
     connect_timeout = float(os.getenv("WARMUP_CONNECT_TIMEOUT", "10"))
-    async with httpx.AsyncClient(timeout=httpx.Timeout(connect=connect_timeout, read=int(os.getenv("WARMUP_REQUEST_TIMEOUT", "300")), write=10.0, pool=5.0)) as client:
+    read_timeout = int(os.getenv("WARMUP_REQUEST_TIMEOUT", "300"))
+    async with httpx.AsyncClient(timeout=httpx.Timeout(
+        connect=connect_timeout, read=read_timeout,
+        write=10.0, pool=5.0,
+    )) as client:
         # warmup
         warmup_data = {
             "model": model_name,

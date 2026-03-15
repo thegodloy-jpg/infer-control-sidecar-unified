@@ -242,7 +242,11 @@ class QueueGate:
         """
         # 0/1 0
         task_id = self._task_id()
-        layer = self._holders.pop(task_id, 0)
+        if task_id not in self._holders:
+            # 未经 acquire() 就调用 release()，跳过以避免信号量溢出
+            _elog("qgate_release_without_acquire", task_id=task_id)
+            return
+        layer = self._holders.pop(task_id)
 
         #  sem
         if self.q is not None:

@@ -1,4 +1,4 @@
-﻿# =============================================================================
+# =============================================================================
 # 文件: engines/vllm_adapter.py
 # 用途: vLLM / vLLM-Ascend 推理引擎适配器
 # 状态: 活跃适配器，sidecar launcher 模式下禁用进程启动 API
@@ -260,15 +260,24 @@ def _build_cache_env_commands(engine: str) -> List[str]:
 
     if engine == "vllm":
         #  kv_agent + sparse
-        lib_path = _sanitize_shell_path(os.getenv("KV_AGENT_LIB_PATH", "/opt/vllm_env/lib/python3.10/site-packages/kv_agent/lib"))
-        sparse_lib_path = _sanitize_shell_path(os.getenv("SPARSE_LIB_PATH", "/opt/vllm_env/lib/python3.10/site-packages/vsparse/native"))
+        lib_path = _sanitize_shell_path(os.getenv(
+            "KV_AGENT_LIB_PATH",
+            "/opt/vllm_env/lib/python3.10/site-packages/kv_agent/lib",
+        ))
+        sparse_lib_path = _sanitize_shell_path(os.getenv(
+            "SPARSE_LIB_PATH",
+            "/opt/vllm_env/lib/python3.10/site-packages/vsparse/native",
+        ))
         env_commands.append(f'_KV_LIB_PATH={lib_path}')
         env_commands.append(f'_SPARSE_LIB_PATH={sparse_lib_path}')
         env_commands.append('export LD_LIBRARY_PATH="${_KV_LIB_PATH}:${_SPARSE_LIB_PATH}:${LD_LIBRARY_PATH:-}"')
         logger.info("[KVCache Offload] Added LD_LIBRARY_PATH for vllm: %s, %s", lib_path, sparse_lib_path)
     elif engine == "vllm_ascend":
         #  lmcache
-        lib_path = _sanitize_shell_path(os.getenv("LMCACHE_LIB_PATH", "/opt/ascend_env/lib/python3.11/site-packages/lmcache"))
+        lib_path = _sanitize_shell_path(os.getenv(
+            "LMCACHE_LIB_PATH",
+            "/opt/ascend_env/lib/python3.11/site-packages/lmcache",
+        ))
         env_commands.append(f'_LMCACHE_LIB_PATH={lib_path}')
         env_commands.append('export LD_LIBRARY_PATH="${_LMCACHE_LIB_PATH}:${LD_LIBRARY_PATH:-}"')
         logger.info("[KVCache Offload] Added LD_LIBRARY_PATH for vllm_ascend: %s", lib_path)
@@ -338,15 +347,15 @@ def _build_pd_role_env_commands(engine: str, current_ip: str, network_interface:
     env_commands = []
     if get_pd_role_env():
         if engine == "vllm":
-            env_commands.append(f'export VLLM_NIXL_SIDE_CHANNEL_HOST={current_ip}')
+            env_commands.append(f'export VLLM_NIXL_SIDE_CHANNEL_HOST={shlex.quote(current_ip)}')
         elif engine == "vllm_ascend":
             rpc_port = os.getenv('VLLM_LLMDD_RPC_PORT', "5569")
             # CANN 环境初始化已由 _build_base_env_commands() 完成，此处不再重复
             env_commands.extend([
-                f"export HCCL_IF_IP={current_ip}",
-                f"export GLOO_SOCKET_IFNAME={network_interface}",
-                f"export TP_SOCKET_IFNAME={network_interface}",
-                f"export HCCL_SOCKET_IFNAME={network_interface}",
+                f"export HCCL_IF_IP={shlex.quote(current_ip)}",
+                f"export GLOO_SOCKET_IFNAME={shlex.quote(network_interface)}",
+                f"export TP_SOCKET_IFNAME={shlex.quote(network_interface)}",
+                f"export HCCL_SOCKET_IFNAME={shlex.quote(network_interface)}",
                 "export OMP_PROC_BIND=false",
                 f"export OMP_NUM_THREADS={os.getenv('OMP_NUM_THREADS', '100')}",
                 "export VLLM_USE_V1=1",
@@ -583,8 +592,9 @@ def _build_vllm_cmd_parts(params: Dict[str, Any]) -> str:
     """
     engine_config = params.get("engine_config", {})
     # llm
-    if "use_kunlun_atb" in engine_config:
-        engine_config.pop("use_kunlun_atb")
+    # 使用浅拷贝避免修改调用方原始 engine_config
+    engine_config = dict(engine_config)
+    engine_config.pop("use_kunlun_atb", None)
     # if params.get("distributed"):
         # raise ValueError("Distributed mode is disabled in sidecar launcher MVP.")
 
@@ -900,6 +910,26 @@ def build_start_script(params: Dict[str, Any]) -> str:
         script_parts = list(common_env_cmds)
         is_ascend = (engine == "vllm_ascend")
 
+        # ── Shell snippet constants (avoid >120 char lines) ──
+        # UDP trick: discover local IP when POD_IP env is absent
+        _SH_DETECT_IP = (
+            "$(python3 -c \"import socket;"
+            "s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);"
+            "s.connect(('8.8.8.8',80));"
+            "print(s.getsockname()[0]);s.close()\""
+            " 2>/dev/null || hostname -i)"
+        )
+        _SH_VLLM_HOST = (
+            "export VLLM_HOST_IP="
+            "${POD_IP:-" + _SH_DETECT_IP + "}"
+        )
+        # Default route interface detection (ip cmd unavailable
+        # in vllm-ascend; awk is universally present)
+        _SH_IF_DETECT = (
+            "$(awk '$2==\"00000000\"{print $1;exit}'"
+            " /proc/net/route 2>/dev/null || echo eth0)"
+        )
+
         if backend == "ray":
             # CANN 环境初始化已由 _build_base_env_commands() 在 common_env_cmds 中完成，
             # 无需在此重复 source set_env.sh（修复 P-C-4 重复初始化问题）。
@@ -923,12 +953,15 @@ def build_start_script(params: Dict[str, Any]) -> str:
                         "        # PATCHED_NPU: Ascend NPU has no Triton backend, provide dummy driver",
                         "        class _NpuDummyDrv:",
                         "            def get_current_target(self):",
-                        "                import types; return types.SimpleNamespace(backend='npu', arch='Ascend910B', warp_size=0)",
+                        "                import types; return types.SimpleNamespace("
+                        "backend='npu', arch='Ascend910B', warp_size=0)",
                         "            def get_current_device(self): return 0",
                         "            def get_device_capability(self, *a): return (0, 0)",
                         "            def get_device_properties(self, device=0):",
                         "                try:",
-                        "                    import torch_npu; n = torch_npu.npu.get_device_name(device); c = 20 if '910B' in str(n) else 30",
+                        "                    import torch_npu; "
+                        "n = torch_npu.npu.get_device_name(device); "
+                        "c = 20 if '910B' in str(n) else 30",
                         "                except Exception: c = 20",
                         "                return {'num_aicore': c, 'num_vectorcore': c}",
                         "            def __getattr__(self, name): return _NpuDummyDrv()",
@@ -938,7 +971,9 @@ def build_start_script(params: Dict[str, Any]) -> str:
                         "            def __bool__(self): return False",
                         "        return _NpuDummyDrv()'''",
                         "        src = src.replace(",
-                        '            \'raise RuntimeError(f"{len(active_drivers)} active drivers ({active_drivers}). There should only be one.")\',',
+                        '            \'raise RuntimeError('
+                        'f"{len(active_drivers)} active drivers '
+                        '({active_drivers}). There should only be one.")\',',
                         "            patch.strip()",
                         "        )",
                         "        with open(drv_path, 'w') as f:",
@@ -954,38 +989,45 @@ def build_start_script(params: Dict[str, Any]) -> str:
                     script_parts.append("")
 
             if node_rank == 0:
-                # Detect this node's IP for Ray placement group scheduling.
-                # 'ip' command is NOT available in vllm-ascend container, so use
-                # POD_IP from Kubernetes Downward API (status.podIP = node IP for hostNetwork pods)
-                # with Python UDP trick as fallback.
-                if is_ascend:
-                    script_parts.append("export VLLM_HOST_IP=${POD_IP:-$(python3 -c \"import socket;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.connect(('8.8.8.8',80));print(s.getsockname()[0]);s.close()\" 2>/dev/null || hostname -i)}")
-                else:
-                    # For NV with hostNetwork, POD_IP = node's external IP (routable between nodes).
-                    # 'hostname -i' returns the container bridge IP (172.17.x.x), NOT suitable for Ray.
-                    script_parts.append("export VLLM_HOST_IP=${POD_IP:-$(python3 -c \"import socket;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.connect(('8.8.8.8',80));print(s.getsockname()[0]);s.close()\" 2>/dev/null || hostname -i)}")
+                # Detect this node's IP for Ray scheduling.
+                script_parts.append(_SH_VLLM_HOST)
                 if is_ascend:
                     # Ascend: use HCCL instead of NCCL
                     script_parts.append("export HCCL_WHITELIST_DISABLE=1")
                     script_parts.append("export HCCL_IF_IP=$VLLM_HOST_IP")
-                    # Detect default-route interface from /proc/net/route
-                    # (ip command unavailable in vllm-ascend image; awk is universally present)
-                    script_parts.append("export HCCL_SOCKET_IFNAME=$(awk '$2==\"00000000\"{print $1;exit}' /proc/net/route 2>/dev/null || echo eth0)")
-                    script_parts.append("export TP_SOCKET_IFNAME=$(awk '$2==\"00000000\"{print $1;exit}' /proc/net/route 2>/dev/null || echo eth0)")
+                    script_parts.append(
+                        "export HCCL_SOCKET_IFNAME="
+                        + _SH_IF_DETECT)
+                    script_parts.append(
+                        "export TP_SOCKET_IFNAME="
+                        + _SH_IF_DETECT)
                     script_parts.append("export RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES=1")
                     script_parts.append("export ASCEND_PROCESS_LOG_PATH=/tmp/ray_vllm010")
                 else:
                     script_parts.append(f"export NCCL_SOCKET_IFNAME={os.getenv('NCCL_SOCKET_IFNAME', 'eth0')}")
                     script_parts.append(f"export TP_SOCKET_IFNAME={os.getenv('NCCL_SOCKET_IFNAME', 'eth0')}")
-                script_parts.append("export GLOO_SOCKET_IFNAME=$(awk '$2==\"00000000\"{print $1;exit}' /proc/net/route 2>/dev/null || echo eth0)\n")
+                script_parts.append(
+                    "export GLOO_SOCKET_IFNAME="
+                    + _SH_IF_DETECT + "\n"
+                )
                 # Ray 资源声明：根据引擎版本自动适配
-                # vllm_ascend >= 0.14: --resources='{"NPU": 1}'
-                # vllm_ascend < 0.14:  --num-gpus={tp_size}（兼容 V1）
-                # vllm (NV):           --num-gpus=1
                 ray_head_resource = _get_ray_resource_flag(engine, params)
-                script_parts.append(f"ray start --head --port={ray_port} --node-ip-address=$VLLM_HOST_IP {ray_head_resource} --dashboard-host=0.0.0.0\n")
+                script_parts.append(
+                    f"ray start --head --port={ray_port}"
+                    f" --node-ip-address=$VLLM_HOST_IP"
+                    f" {ray_head_resource}"
+                    f" --dashboard-host=0.0.0.0\n"
+                )
                 script_parts.append("for i in $(seq 1 60); do")
-                script_parts.append("  COUNT=$(python3 -c \"import ray; ray.init(address='auto',ignore_reinit_error=True); print(len([n for n in ray.nodes() if n['alive']])); ray.shutdown()\" 2>/dev/null || echo 0)")
+                script_parts.append(
+                    "  COUNT=$(python3 -c \"import ray;"
+                    " ray.init(address='auto',"
+                    "ignore_reinit_error=True);"
+                    " print(len([n for n in ray.nodes()"
+                    " if n['alive']]));"
+                    " ray.shutdown()\""
+                    " 2>/dev/null || echo 0)"
+                )
                 script_parts.append("  [ \"$COUNT\" -ge \"2\" ] && break")
                 script_parts.append("  sleep 5")
                 script_parts.append("done\n")
@@ -1011,7 +1053,12 @@ def build_start_script(params: Dict[str, Any]) -> str:
                     ray_pp_extra = f" --pipeline-parallel-size {num_nodes} --tensor-parallel-size {tp_size}"
                     logger.info(f"[vllm_ascend ray] Set parallel parameters: "
                                 f"pipeline_parallel_size={num_nodes}, tensor_parallel_size={tp_size}")
-                script_parts.append(f"exec {cmd}{eager_flag}{speculative_extra}{sparse_extra}{ray_pp_extra} --distributed-executor-backend ray")
+                script_parts.append(
+                    f"exec {cmd}{eager_flag}"
+                    f"{speculative_extra}{sparse_extra}"
+                    f"{ray_pp_extra}"
+                    f" --distributed-executor-backend ray"
+                )
             else:
                 if is_ascend:
                     script_parts.append("export HCCL_WHITELIST_DISABLE=1")
@@ -1023,7 +1070,14 @@ def build_start_script(params: Dict[str, Any]) -> str:
                     script_parts.append(f"echo \"[worker] Scanning NODE_IPS for Ray head on port {ray_port}...\"")
                     script_parts.append("for attempt in $(seq 1 120); do")
                     script_parts.append("  for ip in $(echo $NODE_IPS_LIST | tr ',' ' '); do")
-                    script_parts.append(f"    if python3 -c \"import socket; s=socket.socket(); s.settimeout(2); s.connect(('$ip',{ray_port})); s.close()\" 2>/dev/null; then")
+                    script_parts.append(
+                        f"    if python3 -c \""
+                        f"import socket; s=socket.socket();"
+                        f" s.settimeout(2);"
+                        f" s.connect(('$ip',{ray_port}));"
+                        f" s.close()\""
+                        f" 2>/dev/null; then"
+                    )
                     script_parts.append("      HEAD_IP=$ip")
                     script_parts.append(f"      echo \"[worker] Found Ray head at $HEAD_IP:{ray_port}\"")
                     script_parts.append("      break 2")
@@ -1031,29 +1085,57 @@ def build_start_script(params: Dict[str, Any]) -> str:
                     script_parts.append("  done")
                     script_parts.append("  sleep 5")
                     script_parts.append("done")
-                    script_parts.append("if [ -z \"$HEAD_IP\" ]; then echo '[worker] ERROR: Could not find Ray head'; exit 1; fi\n")
+                    script_parts.append(
+                        "if [ -z \"$HEAD_IP\" ]; then "
+                        "echo '[worker] ERROR: Could not find Ray head'; "
+                        "exit 1; fi\n"
+                    )
                     # Set HCCL env using discovered head IP
-                    script_parts.append(f"export HCCL_IF_IP=$(python3 -c \"import socket; s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); s.connect(('$HEAD_IP',{ray_port})); print(s.getsockname()[0]); s.close()\" 2>/dev/null || hostname -i)")
-                    script_parts.append("export HCCL_SOCKET_IFNAME=$(awk '$2==\"00000000\"{print $1;exit}' /proc/net/route 2>/dev/null || echo eth0)")
-                    script_parts.append("export TP_SOCKET_IFNAME=$(awk '$2==\"00000000\"{print $1;exit}' /proc/net/route 2>/dev/null || echo eth0)")
+                    script_parts.append(
+                        f"export HCCL_IF_IP=$(python3 -c \""
+                        f"import socket;"
+                        f" s=socket.socket(socket.AF_INET,"
+                        f"socket.SOCK_DGRAM);"
+                        f" s.connect(('$HEAD_IP',{ray_port}));"
+                        f" print(s.getsockname()[0]); s.close()\""
+                        f" 2>/dev/null || hostname -i)"
+                    )
+                    script_parts.append(
+                        "export HCCL_SOCKET_IFNAME=" + _SH_IF_DETECT)
+                    script_parts.append(
+                        "export TP_SOCKET_IFNAME=" + _SH_IF_DETECT)
                     script_parts.append("export RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES=1")
                     script_parts.append("export ASCEND_PROCESS_LOG_PATH=/tmp/ray_vllm010")
                     # Worker also needs VLLM_HOST_IP for Ray node matching
-                    script_parts.append("export VLLM_HOST_IP=${POD_IP:-$(python3 -c \"import socket;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.connect(('8.8.8.8',80));print(s.getsockname()[0]);s.close()\" 2>/dev/null || hostname -i)}")
+                    script_parts.append(_SH_VLLM_HOST)
                 else:
                     script_parts.append(f"export NCCL_SOCKET_IFNAME={os.getenv('NCCL_SOCKET_IFNAME', 'eth0')}")
                     script_parts.append(f"export TP_SOCKET_IFNAME={os.getenv('NCCL_SOCKET_IFNAME', 'eth0')}")
                     # Worker's own routable IP (for Ray node-ip-address)
-                    script_parts.append("export VLLM_HOST_IP=${POD_IP:-$(python3 -c \"import socket;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.connect(('8.8.8.8',80));print(s.getsockname()[0]);s.close()\" 2>/dev/null || hostname -i)}")
+                    script_parts.append(_SH_VLLM_HOST)
                     script_parts.append("for i in $(seq 1 60); do")
-                    script_parts.append(f"  python3 -c \"import socket; s=socket.socket(); s.settimeout(2); s.connect(('{head_addr}',{ray_port})); s.close()\" 2>/dev/null && break")
+                    script_parts.append(
+                        f"  python3 -c \"import socket;"
+                        f" s=socket.socket(); s.settimeout(2);"
+                        f" s.connect(('{head_addr}',{ray_port}));"
+                        f" s.close()\""
+                        f" 2>/dev/null && break"
+                    )
                     script_parts.append("  sleep 5")
                     script_parts.append("done")
                     script_parts.append(f"HEAD_IP=\"{head_addr}\"")
-                script_parts.append("export GLOO_SOCKET_IFNAME=$(awk '$2==\"00000000\"{print $1;exit}' /proc/net/route 2>/dev/null || echo eth0)\n")
+                script_parts.append(
+                    "export GLOO_SOCKET_IFNAME="
+                    + _SH_IF_DETECT + "\n"
+                )
                 # Ray 资源声明：根据引擎版本自动适配（与 head 节点一致）
                 ray_worker_resource = _get_ray_resource_flag(engine, params)
-                script_parts.append(f"exec ray start --address=$HEAD_IP:{ray_port} --node-ip-address=$VLLM_HOST_IP {ray_worker_resource} --block")
+                script_parts.append(
+                    f"exec ray start"
+                    f" --address=$HEAD_IP:{ray_port}"
+                    f" --node-ip-address=$VLLM_HOST_IP"
+                    f" {ray_worker_resource} --block"
+                )
         else: # dp_deployment
             # rpc_port: params 优先（config_loader 从 distributed_config.json 注入），其次环境变量
             dp_rpc_port = str(params.get("rpc_port", os.getenv('VLLM_DP_RPC_PORT', '13355')))
@@ -1075,7 +1157,8 @@ def build_start_script(params: Dict[str, Any]) -> str:
             net_if = os.getenv("NETWORK_INTERFACE", os.getenv("GLOO_SOCKET_IFNAME", "eth0"))
             if is_ascend:
                 script_parts.extend([
-                    f"export HCCL_IF_IP=${{POD_IP:-$(python3 -c \"import socket;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.connect(('8.8.8.8',80));print(s.getsockname()[0]);s.close()\" 2>/dev/null || hostname -i)}}",
+                    "export HCCL_IF_IP="
+                    "${POD_IP:-" + _SH_DETECT_IP + "}",
                     f"export GLOO_SOCKET_IFNAME={net_if}",
                     f"export TP_SOCKET_IFNAME={net_if}",
                     f"export HCCL_SOCKET_IFNAME={net_if}",
@@ -1093,7 +1176,8 @@ def build_start_script(params: Dict[str, Any]) -> str:
                     f"export GLOO_SOCKET_IFNAME={net_if}",
                     f"export TP_SOCKET_IFNAME={net_if}",
                     f"export NCCL_SOCKET_IFNAME={net_if}",
-                    f"export VLLM_NIXL_SIDE_CHANNEL_PORT={params.get('nixl_port', os.getenv('VLLM_NIXL_SIDE_CHANNEL_PORT', '12345'))}",
+                    f"export VLLM_NIXL_SIDE_CHANNEL_PORT="
+                    f"{params.get('nixl_port', os.getenv('VLLM_NIXL_SIDE_CHANNEL_PORT', '12345'))}",
                     "export NCCL_IB_DISABLE=0",
                     "export NCCL_CUMEM_ENABLE=0",
                     "export NCCL_NET_GDR_LEVEL=SYS",
@@ -1115,12 +1199,28 @@ def build_start_script(params: Dict[str, Any]) -> str:
                 dp_cmd = cmd  # fallback: 保持原命令
 
             if node_rank == 0:
-                script_parts.append(f"exec {dp_cmd} --data-parallel-address {head_addr} --data-parallel-rpc-port {dp_rpc_port} --data-parallel-size {dp_size} --data-parallel-size-local {dp_size_local} --data-parallel-external-lb --data-parallel-rank 0")
+                script_parts.append(
+                    f"exec {dp_cmd}"
+                    f" --data-parallel-address {shlex.quote(head_addr)}"
+                    f" --data-parallel-rpc-port {dp_rpc_port}"
+                    f" --data-parallel-size {dp_size}"
+                    f" --data-parallel-size-local {dp_size_local}"
+                    f" --data-parallel-external-lb"
+                    f" --data-parallel-rank 0"
+                )
             else:
                 # 非 rank-0 节点不对外服务，移除 --host / --port
                 dp_cmd_headless = re.sub(r"\s*--host\s+(?:'[^']*'|\S+)", "", dp_cmd)
                 dp_cmd_headless = re.sub(r"\s*--port\s+(?:'[^']*'|\S+)", "", dp_cmd_headless)
-                script_parts.append(f"exec {dp_cmd_headless} --data-parallel-address {head_addr} --data-parallel-rpc-port {dp_rpc_port} --data-parallel-size {dp_size} --data-parallel-size-local {dp_size_local} --data-parallel-external-lb --headless --data-parallel-start-rank {dp_start_rank}")
+                script_parts.append(
+                    f"exec {dp_cmd_headless}"
+                    f" --data-parallel-address {shlex.quote(head_addr)}"
+                    f" --data-parallel-rpc-port {dp_rpc_port}"
+                    f" --data-parallel-size {dp_size}"
+                    f" --data-parallel-size-local {dp_size_local}"
+                    f" --data-parallel-external-lb --headless"
+                    f" --data-parallel-start-rank {dp_start_rank}"
+                )
         return "\n".join(script_parts) + "\n"
 
     if engine == "vllm_ascend":

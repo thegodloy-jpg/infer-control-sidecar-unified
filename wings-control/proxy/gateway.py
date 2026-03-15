@@ -1,4 +1,4 @@
-﻿# =============================================================================
+# =============================================================================
 # 文件: proxy/gateway.py
 # 用途: 主业务代理应用，转发 OpenAI 兼容请求到后端推理引擎
 # 状态: 活跃，复用自 wings 项目
@@ -52,6 +52,8 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
+from fastchat.protocol.openai_api_protocol import ChatCompletionRequest
+
 from . import proxy_config as C
 from .http_client import create_async_client
 from .queueing import QueueGate
@@ -78,7 +80,6 @@ from .health_router import (
 # RAG 加速
 from rag_acc.rag_app import is_rag_scenario, rag_acc_chat
 from rag_acc.extract_dify_info import is_dify_scenario, extract_dify_info
-from fastchat.protocol.openai_api_protocol import ChatCompletionRequest
 
 configure_worker_logging()
 
@@ -347,19 +348,19 @@ async def _send_with_fixed_retries(
 
             #  httpx.RequestError  502
             if isinstance(e, httpx.RequestError):
-                raise HTTPException(502, f"backend connect error: {e}") from e
+                raise HTTPException(502, "backend connect error") from e
             raise
 
     #
     if last_exc is not None:
         if isinstance(last_exc, httpx.RequestError):
             elog("retry_final_fail", rid=rid, tries=total, final_error=str(last_exc))
-            raise HTTPException(502, f"backend connect error: {last_exc}") from last_exc
+            raise HTTPException(502, "backend connect error") from last_exc
         elog("retry_final_fail", rid=rid, tries=total, final_error=str(last_exc))
         raise last_exc
     if last_status is not None:
         elog("retry_final_fail", rid=rid, tries=total, final_status=last_status)
-        raise HTTPException(502, f"backend 5xx after retries: {last_status}")
+        raise HTTPException(502, f"backend error after retries (status {last_status})")
     elog("retry_final_fail", rid=rid, tries=total, reason="unknown")
     raise HTTPException(502, "backend error after retries")
 
@@ -378,12 +379,8 @@ async def _startup():
     # 启动后台健康轮询，让 `/health` 能读到持续更新的状态。
     setup_health_monitor(app)
     C.logger.info("Reason-Proxy is starting on %s:%s (health monitor loop enabled)", C.HOST, C.PORT)
-    # 使用 print 确保启动确认日志一定可见于 docker logs（绕过日志框架不确定性）
-    import sys
-    print(
-        f"Proxy ready: http://0.0.0.0:{C.PORT} -> backend {C.BACKEND_URL}",
-        file=sys.stderr, flush=True,
-    )
+    # 启动确认日志
+    C.logger.info("Proxy ready: http://0.0.0.0:%s -> backend %s", C.PORT, C.BACKEND_URL)
 
 
 @app.on_event("shutdown")
@@ -1105,7 +1102,7 @@ async def models_proxy(request: Request):
         )
     except Exception as e:
         elog("models_proxy_error", rid=rid, detail=str(e))
-        raise HTTPException(status_code=502, detail=f"Backend unavailable: {e}")
+        raise HTTPException(status_code=502, detail="backend unavailable")
 
 
 @app.get("/v1/version")

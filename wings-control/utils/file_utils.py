@@ -70,6 +70,10 @@ def safe_write_file(file_path: str,
         bool: 写入成功返回 True，失败返回 False
     """
     try:
+        # 符号链接检查：拒绝写入符号链接目标，防止路径劫持
+        if os.path.islink(file_path):
+            logger.error("Refusing to write to symlink: %s", file_path)
+            return False
         with os.fdopen(os.open(file_path, flags, modes), 'w', encoding='utf-8') as f:
             if is_json:
                 json.dump(content, f, indent=INDENT)

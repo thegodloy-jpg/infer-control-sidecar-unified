@@ -1,4 +1,4 @@
-﻿import re
+import re
 from fastchat.protocol.openai_api_protocol import ChatCompletionRequest
 from proxy.proxy_config import logger
 

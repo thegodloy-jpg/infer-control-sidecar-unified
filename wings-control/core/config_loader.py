@@ -1,4 +1,4 @@
-﻿# =============================================================================
+# =============================================================================
 # File: core/config_loader.py
 # Purpose: 多层配置加载与合并器 — 是 launcher 控制平面最大的单个模块。
 # Architecture:
@@ -432,9 +432,13 @@ def _set_soft_fp8(params, ctx, model_info):
         params['no_enable_prefix_caching'] = True
         # 使用 DP 并行要禁用该功能
         params['enable_expert_parallel'] = False
-        # 根据硬件配置设置张量并行大小，DeepSeek FP8 模型推荐使用 4
-        params['data_parallel_size'] = 4
-        params['tensor_parallel_size'] = 4
+        # 根据硬件配置设置张量并行大小，DeepSeek FP8 模型推荐使用 TP=4/DP=4
+        # 但必须确保 device_count 足够，否则回退为全部设备
+        device_count_val = int(params.get('device_count', 0))
+        recommended_tp = min(4, device_count_val) if device_count_val > 0 else 4
+        recommended_dp = min(4, device_count_val // recommended_tp) if device_count_val > 0 else 4
+        params['data_parallel_size'] = recommended_dp
+        params['tensor_parallel_size'] = recommended_tp
         params['use_kunlun_atb'] = False
         logger.info("Soft FP8 configured for Deekseek Series models")
 
@@ -708,12 +712,12 @@ def _merge_mindie_params(params, ctx, engine_cmd_parameter, model_info=None):
         })
 
     # ── US8: DeepSeek 满血模型 2×8 分布式长上下文 dp/sp/cp/tp 策略 ─────────
-    _LONG_CTX_THRESHOLD = int(os.getenv("MINDIE_LONG_CONTEXT_THRESHOLD", "8192"))
+    long_ctx_threshold = int(os.getenv("MINDIE_LONG_CONTEXT_THRESHOLD", "8192"))
     model_architecture = getattr(model_info, "model_architecture", None) if model_info else None
     total_seq_len = (engine_cmd_parameter.get("input_length") or 0) + (engine_cmd_parameter.get("output_length") or 0)
     if (ctx.get('distributed')
             and model_architecture in ["DeepseekV3ForCausalLM", "DeepseekV32ForCausalLM"]
-            and total_seq_len > _LONG_CTX_THRESHOLD):
+            and total_seq_len > long_ctx_threshold):
         params['dp'] = int(os.getenv("MINDIE_DS_DP", "1"))
         params['sp'] = int(os.getenv("MINDIE_DS_SP", "8"))
         params['cp'] = int(os.getenv("MINDIE_DS_CP", "2"))
@@ -805,7 +809,7 @@ def _adjust_tensor_parallelism(params, device_count, tp_key, if_distributed=Fals
     - 若已有用户设置则不覆盖
     """
     default_tp = params.get(tp_key)
-    if default_tp:
+    if default_tp is not None:
         return
     if not if_distributed:
         # 300I A2 标卡为 4 张或 8 张时，强制 TP=4（PCIe 拓扑限制）
@@ -941,6 +945,11 @@ def _load_user_config(config) -> Dict[str, Any]:
     user_config = {}
     if not config:
         return user_config
+
+    # 支持已反序列化的 dict 对象
+    if isinstance(config, dict):
+        logger.info("Config is already a dict, keys: %s", list(config.keys()))
+        return config
 
     if config.strip().startswith('{') and config.strip().endswith('}'):
         # JSON
@@ -1223,7 +1232,10 @@ def _validate_user_engine(engine: str, device_name: str, gpu_usage_mode: str, mo
     """
     #
     if engine not in ['mindie', 'vllm', 'vllm_ascend', 'sglang']:
-        raise ValueError(f"The engine {engine} is not supported yet! Please change to 'mindie', 'vllm', 'vllm_ascend' or 'sglang'")
+        raise ValueError(
+            f"The engine {engine} is not supported yet! "
+            "Please change to 'mindie', 'vllm', 'vllm_ascend' or 'sglang'"
+        )
 
     vllm = 'vllm'
     model_type = model_info.identify_model_type()
@@ -1447,7 +1459,11 @@ def _get_model_specific_config(hardware_env: Dict[str, Any],
             if is_deepseek_sglang_nvidia and h20_model in ["H20-96G", "H20-141G"]:
                 engine_specific_defaults = config.get(engine_key, {}).get(h20_model, {})
                 logger.info("Using dedicated config for model '%s' on %s", model_name, h20_model)
-            elif not is_deepseek_sglang_nvidia:
+            elif is_deepseek_sglang_nvidia:
+                # DeepSeek+SGLang+NVIDIA 但无匹配的 H20 型号，使用引擎级别默认配置
+                engine_specific_defaults = config.get(engine_key, {})
+                logger.info("DeepSeek+SGLang+NVIDIA (non-H20): using engine-level config for '%s'", model_name)
+            else:
                 engine_specific_defaults = config.get(engine_key, {})
                 logger.info("The default deploy configuration "
                             "of the model architecture %s will be used.", model_architecture)

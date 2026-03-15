@@ -1,4 +1,4 @@
-﻿"""
+"""
 =============================================================================
  Launcher 主入口模块 (wings_control.py)
 =============================================================================
@@ -24,10 +24,10 @@
        - 处理系统信号（SIGINT/SIGTERM）实现优雅退出
 
     4. 分布式协调（DISTRIBUTED=true 时激活）
-       - 通过 NODE_RANK 或 IP 比较自动判断 master/worker 角色
+       - 通过 RANK_IP vs MASTER_IP 比较自动判断 master/worker 角色
        - Master: 生成 rank0 脚本 + 启动 Master API + 等待 Worker 注册后分发启动指令
        - Worker: 启动 Worker API + 向 Master 注册 + 接收启动指令写入共享卷
-       - 支持 NODE_IPS 中的 DNS 名称（通过 _resolve() 解析后比较）
+       - 支持 MASTER_IP 为 DNS 名称（通过 DNS 解析后比较）
 
 Sidecar 架构说明：
     ┌─────────────────────────────────────────────────────────────┐
@@ -123,9 +123,9 @@ class ManagedProc:
     argv: list[str]     # 命令行参数列表[python, -m, uvicorn, ...]
     env: dict[str, str] # 环境变量字典，继承自父进程并添加服务特定变量
     proc: subprocess.Popen | None = None  # 实际的子进程句柄
-    _crash_count: int = 0          # 连续崩溃计数器
-    _last_start_ts: float = 0.0    # 上次启动时间戳
-    _backoff_until: float = 0.0    # 退避期截止时间戳
+    crash_count: int = 0            # 连续崩溃计数器
+    last_start_ts: float = 0.0     # 上次启动时间戳
+    backoff_until: float = 0.0     # 退避期截止时间戳
 
 
 def _start(proc: ManagedProc) -> None:
@@ -208,9 +208,9 @@ def _restart_if_needed(proc: ManagedProc) -> None:
     if not proc.proc:
         # 进程从未启动或已标记为待重启
         # 检查是否在退避等待期内（崩溃循环保护）
-        if proc._backoff_until and time.time() < proc._backoff_until:
+        if proc.backoff_until and time.time() < proc.backoff_until:
             return  # 退避期内，跳过本轮
-        proc._last_start_ts = time.time()
+        proc.last_start_ts = time.time()
         _start(proc)
         return
 
@@ -220,27 +220,27 @@ def _restart_if_needed(proc: ManagedProc) -> None:
         return  # 进程正常运行，无需操作
 
     # ── 进程已退出，记录崩溃/正常退出并清理句柄 ──
-    uptime = time.time() - proc._last_start_ts if proc._last_start_ts else 0
+    uptime = time.time() - proc.last_start_ts if proc.last_start_ts else 0
 
     # 清理已退出进程句柄，下轮将通过 "not proc.proc" 分支重启
     proc.proc = None
 
     if uptime < CRASH_THRESHOLD_SEC:
         # 短时间内退出视为崩溃
-        proc._crash_count += 1
-        backoff = min(2 ** proc._crash_count, MAX_BACKOFF_SEC)
-        proc._backoff_until = time.time() + backoff
+        proc.crash_count += 1
+        backoff = min(2 ** proc.crash_count, MAX_BACKOFF_SEC)
+        proc.backoff_until = time.time() + backoff
         logger.warning(
             "%s 以退出码 %s 退出（运行 %0.1fs），"
             "连续崩溃 %d 次，等待 %ds 后重启...",
-            proc.name, code, uptime, proc._crash_count, backoff,
+            proc.name, code, uptime, proc.crash_count, backoff,
         )
         # 退避期内不重启，下轮若已过退避期则经 "not proc.proc" 分支启动
     else:
         # 稳定运行后退出，重置崩溃计数器并立即重启
-        proc._crash_count = 0
+        proc.crash_count = 0
         logger.warning("%s 以退出码 %s 退出，正在重启...", proc.name, code)
-        proc._last_start_ts = time.time()
+        proc.last_start_ts = time.time()
         _start(proc)
 
 
@@ -326,13 +326,14 @@ def _determine_role() -> str:
 
     通过 DISTRIBUTED 环境变量判断是否为分布式模式:
       - 非分布式 → "standalone"（沿用原有单机流程）
-      - 分布式且本机 IP == MASTER_IP → "master"
-      - 分布式且本机 IP != MASTER_IP → "worker"
+      - 分布式且 RANK_IP == MASTER_IP → "master"
+      - 分布式且 RANK_IP != MASTER_IP → "worker"
 
-    角色判定策略（按优先级）：
-      1. NODE_RANK 环境变量：hostNetwork 模式下直接确定角色
-      2. 原始字符串比较：兼容 V1 "$MASTER_IP = $RANK_IP" 直接比较
-      3. DNS 解析后比较：处理 MASTER_IP 为 DNS 名称的情况
+    角色判定策略（与老版本 wings 保持一致）：
+      1. 原始字符串比较：RANK_IP vs MASTER_IP 直接比较（兼容老版本 shell 方式）
+      2. DNS 解析后比较：处理 MASTER_IP 为 DNS 名称的情况
+
+    RANK_IP 由上层（MaaS）传入，每个 Pod 唯一，不依赖 NODE_RANK 环境变量。
 
     Returns:
         "standalone" | "master" | "worker"
@@ -343,25 +344,8 @@ def _determine_role() -> str:
     if not distributed:
         return "standalone"
 
-    # 优先检查 NODE_RANK 环境变量：
-    # hostNetwork 模式下同一宿主机的多个 Pod 共享 IP，
-    # 无法通过 RANK_IP vs MASTER_IP 区分角色。
-    # 此时显式设置 NODE_RANK 可直接确定角色，跳过 IP 比较。
-    node_rank_env = os.getenv("NODE_RANK", "").strip()
-    if node_rank_env:
-        try:
-            rank = int(node_rank_env)
-            if rank == 0:
-                logger.info("Role determined: MASTER (NODE_RANK=0)")
-                return "master"
-            else:
-                logger.info("Role determined: WORKER (NODE_RANK=%d)", rank)
-                return "worker"
-        except ValueError:
-            logger.warning("NODE_RANK=%s is not an integer, falling back to IP comparison", node_rank_env)
-
     master_ip = get_master_ip()
-    local_ip = get_local_ip()
+    local_ip = get_local_ip()  # 来自 RANK_IP 环境变量
 
     if not master_ip:
         logger.warning(
@@ -369,20 +353,19 @@ def _determine_role() -> str:
         )
         return "standalone"
 
-    # ── 快速路径：原始字符串直接比较（兼容 V1 "$MASTER_IP = $RANK_IP"） ──
-    # V1 使用 shell 直接比较 MASTER_IP 与 RANK_IP 字符串，不做 DNS 解析。
-    # 当两者格式一致（都是 IP 或完全相同的 DNS 名称）时，直接比较即可确定角色，
-    # 避免不必要的 DNS 查询，同时保持与 V1 行为完全一致。
+    # ── 快速路径：原始字符串直接比较（与老版本 "$MASTER_IP = $RANK_IP" 一致） ──
+    # RANK_IP 由上层（MaaS）传入，每个 Pod 唯一。
+    # 直接比较即可确定角色，避免不必要的 DNS 查询。
     if local_ip == master_ip:
         logger.info(
-            "Role determined: MASTER (raw string match: local_ip=%s == master_ip=%s)",
+            "Role determined: MASTER (RANK_IP=%s == MASTER_IP=%s)",
             local_ip, master_ip,
         )
         return "master"
 
     # ── 慢速路径：DNS 解析后比较 ──
     # MASTER_IP 可能是 DNS 名称（如 "infer-0.infer-hl.svc.cluster.local"），
-    # 而 RANK_IP/local_ip 始终是数字 IP；需要解析后比较。
+    # 而 RANK_IP 始终是数字 IP；需要解析后比较。
     try:
         master_resolved = socket.gethostbyname(master_ip)
     except socket.error:
@@ -395,13 +378,13 @@ def _determine_role() -> str:
 
     if local_resolved == master_resolved:
         logger.info(
-            "Role determined: MASTER (DNS resolved: local_ip=%s→%s, master_ip=%s→%s)",
+            "Role determined: MASTER (DNS resolved: RANK_IP=%s→%s, MASTER_IP=%s→%s)",
             local_ip, local_resolved, master_ip, master_resolved,
         )
         return "master"
 
     logger.info(
-        "Role determined: WORKER (local_ip=%s → %s, master_ip=%s → %s)",
+        "Role determined: WORKER (RANK_IP=%s → %s, MASTER_IP=%s → %s)",
         local_ip, local_resolved, master_ip, master_resolved,
     )
     return "worker"

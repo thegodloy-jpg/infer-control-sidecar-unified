@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import json
 import re
 import time
@@ -120,7 +120,10 @@ class StreamCollector:
         for index, done in enumerate(self.dones):
             await done.get()
             logger.debug(f"combine, q-{index} is done")
-        logger.debug(f"first-level response completed, starting second-level reasoning, first-level response {self.buffers}")
+        logger.debug(
+            "first-level response completed, starting second-level reasoning, "
+            "first-level response %s", self.buffers,
+        )
         async with self.combine_request("\n\n".join(self.buffers)) as resp:
             logger.debug(f"combine, resp {resp}")
             try:

@@ -193,7 +193,7 @@ else:
                     out.append(line)
             if out:
                 return self._under.write("".join(out))
-            return 0
+            return len(s)
 
 
         def flush(self):

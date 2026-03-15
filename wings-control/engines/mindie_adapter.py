@@ -57,8 +57,6 @@ from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
 
-import re
-
 # 模块根目录：用于定位本地开发环境的环境脚本
 root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -223,13 +221,13 @@ def _build_distributed_env_commands(params: Dict[str, Any]) -> List[str]:
     node_ips_str = params.get("node_ips", "")
     node_ips_list = [ip.strip() for ip in node_ips_str.split(",") if ip.strip()] if node_ips_str else []
     if node_rank < len(node_ips_list):
-        hccl_if_ip_cmd = f'export HCCL_IF_IP={node_ips_list[node_rank]}'
+        hccl_if_ip_cmd = f'export HCCL_IF_IP={shlex.quote(node_ips_list[node_rank])}'
     else:
         # Fallback: try hostname -i, then python3 socket, then master_addr
         hccl_if_ip_cmd = (
             f"export HCCL_IF_IP=$(hostname -i 2>/dev/null "
             f"|| python3 -c 'import socket; print(socket.gethostbyname(socket.gethostname()))' 2>/dev/null "
-            f"|| echo {master_addr})"
+            f"|| echo {shlex.quote(master_addr)})"
         )
 
     # Determine this node's container IP for MIES_CONTAINER_IP
@@ -277,7 +275,7 @@ def _build_distributed_env_commands(params: Dict[str, Any]) -> List[str]:
 
     return [
         "# ── Ascend HCCL distributed env vars (single-node TP, cross-node DP) ──",
-        f"export MASTER_ADDR={master_addr}",
+        f"export MASTER_ADDR={shlex.quote(master_addr)}",
         f"export MASTER_PORT={master_port}",
         f"export RANK={node_rank}",
         f"export WORLD_SIZE={nnodes}",
@@ -285,7 +283,7 @@ def _build_distributed_env_commands(params: Dict[str, Any]) -> List[str]:
         hccl_if_ip_cmd,
         f"export HCCL_SOCKET_IFNAME={os.getenv('HCCL_SOCKET_IFNAME', 'eth0')}",
         f"export GLOO_SOCKET_IFNAME={os.getenv('GLOO_SOCKET_IFNAME', 'eth0')}",
-        f"export MIES_CONTAINER_IP={container_ip}",
+        f"export MIES_CONTAINER_IP={shlex.quote(container_ip)}",
     ] + rank_table_cmds + [
         f"export RANK_TABLE_FILE={ranktable_path}",
     ]
@@ -475,7 +473,7 @@ def build_start_script(params: Dict[str, Any]) -> str:
         if not params.get(key) and engine_config.get(key):
             params[key] = engine_config[key]
 
-    # ── 1. npuDeviceIds ────────────────────────────────────────────────────
+    # ── 1. npuDeviceIds ─────────────────────────────────────────────────
     # 分布式默认 8 卡 [[0..7]]，单机默认 [[0]]（对齐 A）
     npu_default = [[0, 1, 2, 3, 4, 5, 6, 7]] if is_distributed else [[0]]
     npu_device_ids = engine_config.get("npuDeviceIds", None)
@@ -490,7 +488,7 @@ def build_start_script(params: Dict[str, Any]) -> str:
         else:
             npu_device_ids = npu_default
 
-    # ── 2. ServerConfig overrides ──────────────────────────────────────────
+    # ── 2. ServerConfig overrides ────────────────────────────────────────
     main_port: int = engine_config.get("port", DEFAULT_SERVER_PORT)
     # rank > 0 workers don't expose external HTTP
     ip_address = "0.0.0.0" if (not is_distributed or node_rank == 0) else "127.0.0.1"
@@ -615,7 +613,7 @@ def build_start_script(params: Dict[str, Any]) -> str:
     }
     overrides_json = json.dumps(overrides_dict, indent=2, ensure_ascii=False)
 
-    # ── 7. Assemble script parts ────────────────────────────────────────────
+    # ── 7. Assemble script parts ─────────────────────────────────────────
     env_cmds = _build_env_commands(params)
     dist_cmds = _build_distributed_env_commands(params)
 
@@ -629,7 +627,7 @@ def build_start_script(params: Dict[str, Any]) -> str:
     # 通过环境变量传递路径给内联 Python，避免字符串注入风险
     safe_config_path = shlex.quote(MINDIE_CONFIG_PATH)
     safe_work_dir = shlex.quote(MINDIE_WORK_DIR)
-    script = f"""{env_block}# ── Merge-update MindIE config.json (preserve original fields, override only what changed) ──
+    script = f"""{env_block}# ── Merge-update MindIE config.json (preserve original, override changed) ──
 export _MINDIE_CONFIG_PATH={safe_config_path}
 
 cat > /tmp/_mindie_overrides.json << 'OVERRIDES_EOF'

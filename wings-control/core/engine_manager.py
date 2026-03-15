@@ -1,4 +1,4 @@
-﻿# =============================================================================
+# =============================================================================
 # File: core/engine_manager.py
 # Purpose: 引擎适配器动态调度器 — 根据 engine 名称通过 importlib 动态加载对应
 #          adapter 模块，并调用其 build_start_script / build_start_command 生成
@@ -64,6 +64,10 @@ def start_engine_service(params: Dict[str, Any]) -> str:
         raise ValueError("Missing 'engine' key in params dict.")
 
     adapter_key = ENGINE_ADAPTER_ALIASES.get(engine_name, engine_name)
+    # 白名单校验：只允许字母数字和下划线，防止 importlib 加载任意模块
+    import re as _re
+    if not _re.match(r'^[a-zA-Z0-9_]+$', adapter_key):
+        raise ValueError(f"Invalid engine adapter key: '{adapter_key}'")
     logger.info("Loading adapter for engine: %s (adapter: %s)", engine_name, adapter_key)
 
     adapter_module_name = f"{ENGINE_ADAPTER_PACKAGE}.{adapter_key}_adapter"

@@ -34,6 +34,7 @@
 import json
 import os
 import subprocess
+import threading
 from typing import List, Dict, Literal, Any
 import logging
 
@@ -51,9 +52,8 @@ _DEVICE_TO_DEVICETYPE = {
     "ascend": "npu",
 }
 
-# ── JSON 硬件信息缓存 ────────────────────────────────────────────────────────
-_hardware_cache: Dict[str, Any] = {}
-
+# ── JSON 硬件信息缓存 ────────────────────────────────────────────────
+_hardware_cache: Dict[str, Any] = {}_hardware_cache_lock = threading.Lock()
 
 def _get_hardware_info() -> Dict[str, Any]:
     """从 JSON 文件加载硬件信息（带缓存）。
@@ -66,6 +66,10 @@ def _get_hardware_info() -> Dict[str, Any]:
     """
     if _hardware_cache:
         return _hardware_cache
+
+    with _hardware_cache_lock:
+        if _hardware_cache:
+            return _hardware_cache
 
     hw_file = os.getenv(
         "WINGS_HARDWARE_FILE",
@@ -116,7 +120,7 @@ def _get_device_type_from_hw() -> DeviceType:
     return _DEVICE_TO_DEVICETYPE.get(hw.get("device", "nvidia"), "cpu")
 
 
-# ── 设备可用性检查 ────────────────────────────────────────────────────────────
+# ── 设备可用性检查 ────────────────────────────────────────────────────
 
 def is_npu_available() -> bool:
     """检查昇腾 NPU (Ascend) 是否可用。
@@ -163,7 +167,7 @@ def is_device_available(device: str) -> bool:
     return available == device
 
 
-# ── 设备信息查询 ──────────────────────────────────────────────────────────────
+# ── 设备信息查询 ──────────────────────────────────────────────────────
 
 def get_available_device_env_name():
     """获取当前可用设备对应的可见设备环境变量名。
@@ -257,7 +261,7 @@ def is_hf_accelerate_supported(device: str) -> bool:
     return device == "cuda" or device == "npu"
 
 
-# ── GPU 型号判断 ──────────────────────────────────────────────────────────────
+# ── GPU 型号判断 ──────────────────────────────────────────────────────
 
 def is_h20_gpu(total_memory: float, tolerance_gb: float = 10.0) -> str:
     """根据显存大小判断是否为 H20 系列 GPU。

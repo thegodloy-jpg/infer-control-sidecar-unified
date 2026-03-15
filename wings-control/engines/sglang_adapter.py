@@ -184,11 +184,11 @@ def build_start_command(params: Dict[str, Any]) -> str:
     if is_distributed and nnodes > 1:
         cmd += f" --nnodes {nnodes} --node-rank {node_rank}"
         if ":" in head_node_addr:
-            cmd += f" --dist-init-addr {head_node_addr}"
+            cmd += f" --dist-init-addr {shlex.quote(head_node_addr)}"
         else:
             # dist_port: params 优先（config_loader 从 distributed_config.json 注入），其次环境变量
             sglang_dist_port = str(params.get("dist_port", os.getenv("SGLANG_DIST_PORT", "28030")))
-            cmd += f" --dist-init-addr {head_node_addr}:{sglang_dist_port}"
+            cmd += f" --dist-init-addr {shlex.quote(head_node_addr)}:{sglang_dist_port}"
         # 非 master 节点需要绑定所有地址（对齐 A）
         if node_rank != 0:
             cmd += " --host 0.0.0.0"

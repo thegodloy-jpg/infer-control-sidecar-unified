@@ -1,4 +1,4 @@
-﻿from fastapi import Request
+from fastapi import Request
 from fastapi.responses import StreamingResponse
 from fastchat.protocol.openai_api_protocol import ChatCompletionRequest
 from proxy.proxy_config import logger

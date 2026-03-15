@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Quick test: verify env script handling after NV script removal."""
 import sys, os
-sys.path.insert(0, '/opt/wings-control')
+
+_WINGS_DIR = '/opt/wings-control'
+if _WINGS_DIR not in sys.path:
+    sys.path.append(_WINGS_DIR)
 os.environ.setdefault('ENGINE_TYPE', 'vllm')
 os.environ.setdefault('MODEL_NAME', 'test')
 

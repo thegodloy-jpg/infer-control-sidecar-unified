@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Inspect actual exports of all modules."""
 import sys, os
-sys.path.insert(0, '/opt/wings-control')
+
+_WINGS_DIR = '/opt/wings-control'
+if _WINGS_DIR not in sys.path:
+    sys.path.append(_WINGS_DIR)
 os.chdir('/opt/wings-control')
 
 modules_to_check = [
