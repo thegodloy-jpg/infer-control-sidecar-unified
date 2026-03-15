@@ -1,15 +1,3 @@
-# =============================================================================
-# File: core/wings_entry.py
-# Purpose: Launcher 控制链路的中枢桥接层。
-#          上游拿到的是 CLI/环境变量，下游需要的是一段可执行的 shell 脚本，
-#          中间还要结合硬件探测、默认配置、用户配置和端口规划。
-# Data Flow:
-#   LaunchArgs + PortPlan
-#     → detect_hardware()        获取硬件信息
-#     → load_and_merge_configs() 多层配置合并
-#     → start_engine_service()   生成 shell 脚本
-#     → LauncherPlan.command     写入共享卷
-# =============================================================================
 
 """将 launcher 参数转换成 engine 启动计划。
 

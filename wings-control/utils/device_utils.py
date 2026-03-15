@@ -1,34 +1,32 @@
-# =============================================================================
-# 文件: utils/device_utils.py
-# 用途: 设备级辅助方法，用于硬件能力检查和资源内省
-# 状态: 已重构 — 从 JSON 文件读取硬件信息，不再依赖 torch/pynvml/torch_npu。
-#
-# 数据来源:
-#   本模块从 hardware_info.json 文件加载硬件信息（由 hardware_probe.py
-#   在 GPU/NPU 可访问的容器中预先生成）。JSON 文件路径通过环境变量
-#   WINGS_HARDWARE_FILE 配置，默认为 /shared-volume/hardware_info.json。
-#
-# 功能概述:
-#   本模块提供跨平台的设备信息查询功能，支持：
-#   - NVIDIA GPU (CUDA)
-#   - 华为昇腾 NPU (Ascend)
-#   - CPU 回退
-#
-# 主要功能:
-#   - is_npu_available()       : 检查昇腾 NPU 是否可用
-#   - get_available_device()   : 返回当前可用设备类型 (cuda/npu/cpu)
-#   - gpu_count()              : 返回可见 GPU/NPU 数量
-#   - get_nvidia_gpu_info()    : 获取 NVIDIA GPU 详情列表
-#   - get_device_info()        : 获取完整硬件环境信息
-#   - is_h20_gpu()             : 根据显存大小判断 H20 GPU 型号
-#   - check_pcie_cards()       : 通过 lspci 检测 PCIe 设备
-#
-# Sidecar 架构契约:
-#   - 硬件信息来自 JSON 文件，无需 GPU/NPU SDK
-#   - 硬件探测应优雅降级，不在缺少文件时崩溃
-#   - 避免对异构节点做硬编码假设
-#
-# =============================================================================
+"""设备级辅助方法，用于硬件能力检查和资源内省。
+
+已重构 ── 从 JSON 文件读取硬件信息，不再依赖 torch/pynvml/torch_npu。
+
+数据来源:
+    本模块从 hardware_info.json 文件加载硬件信息（由 hardware_probe.py
+    在 GPU/NPU 可访问的容器中预先生成）。JSON 文件路径通过环境变量
+    WINGS_HARDWARE_FILE 配置，默认为 /shared-volume/hardware_info.json。
+
+功能概述:
+    本模块提供跨平台的设备信息查询功能，支持：
+    - NVIDIA GPU (CUDA)
+    - 华为昇腾 NPU (Ascend)
+    - CPU 回退
+
+主要功能:
+    - is_npu_available()       : 检查昇腾 NPU 是否可用
+    - get_available_device()   : 返回当前可用设备类型 (cuda/npu/cpu)
+    - gpu_count()              : 返回可见 GPU/NPU 数量
+    - get_nvidia_gpu_info()    : 获取 NVIDIA GPU 详情列表
+    - get_device_info()        : 获取完整硬件环境信息
+    - is_h20_gpu()             : 根据显存大小判断 H20 GPU 型号
+    - check_pcie_cards()       : 通过 lspci 检测 PCIe 设备
+
+Sidecar 架构契约:
+    - 硬件信息来自 JSON 文件，无需 GPU/NPU SDK
+    - 硬件探测应优雅降级，不在缺少文件时崩溃
+    - 避免对异构节点做硬编码假设
+"""
 # Copyright (c) xFusion Digital Technologies Co., Ltd. 2025-2025. All rights reserved.
 
 import json

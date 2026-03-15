@@ -1,35 +1,3 @@
-# =============================================================================
-# 文件: proxy/gateway.py
-# 用途: 主业务代理应用，转发 OpenAI 兼容请求到后端推理引擎
-# 状态: 活跃，复用自 wings 项目
-#
-# 功能概述:
-#   本模块是 sidecar 代理层的核心入口，承担以下职责：
-#   1. 对外暴露 OpenAI 兼容接口 (/v1/chat/completions 等)
-#   2. 将请求转发到 backend engine (vLLM/SGLang/MindIE)
-#   3. 对流式/非流式响应采用不同的回传策略，兼顾首包延迟 (TTFT) 和吞吐
-#   4. 维护观测头 (X-InFlight 等)、重试信息、并发控制
-#   5. 提供 /health、/metrics、/v1/models 等辅助接口
-#
-# 核心组件:
-#   - QueueGate    : 双闸门 FIFO 排队控制器（来自 queueing.py）
-#   - httpx.AsyncClient : 异步 HTTP 客户端池
-#   - health 状态机 : 后台持续探测后端健康
-#
-# 请求流程:
-#   Client -> Gateway (/v1/chat/completions)
-#       -> gate.acquire()
-#       -> _send_with_fixed_retries() -> backend
-#       -> _stream_gen() / _pipe_nonstream()
-#       -> StreamingResponse / JSONResponse
-#       -> gate.release()
-#
-# Sidecar 架构契约:
-#   - 保持转发语义和重试行为稳定
-#   - 避免不兼容的重写，仅做最小化适配
-#   - 通过 uvicorn "proxy.gateway:app" 启动
-#
-# =============================================================================
 # -*- coding: utf-8 -*-
 """主业务代理入口。
 

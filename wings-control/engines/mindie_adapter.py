@@ -430,7 +430,7 @@ def build_start_script(params: Dict[str, Any]) -> str:
         if npu_ids_env:
             try:
                 npu_device_ids = json.loads(npu_ids_env)
-            except (json.JSONDecodeError, ValueError):
+            except ValueError:
                 logger.warning("MINDIE_NPU_DEVICE_IDS parse error: %s, fallback to %s", npu_ids_env, npu_default)
                 npu_device_ids = npu_default
         else:

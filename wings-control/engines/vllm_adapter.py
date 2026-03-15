@@ -845,20 +845,20 @@ def build_start_script(params: Dict[str, Any]) -> str:
 
         # ── Shell snippet constants (avoid >120 char lines) ──
         # UDP trick: discover local IP when POD_IP env is absent
-        _SH_DETECT_IP = (
+        _sh_detect_ip = (
             "$(python3 -c \"import socket;"
             "s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);"
             "s.connect(('8.8.8.8',80));"
             "print(s.getsockname()[0]);s.close()\""
             " 2>/dev/null || hostname -i)"
         )
-        _SH_VLLM_HOST = (
+        _sh_vllm_host = (
             "export VLLM_HOST_IP="
-            "${POD_IP:-" + _SH_DETECT_IP + "}"
+            "${POD_IP:-" + _sh_detect_ip + "}"
         )
         # Default route interface detection (ip cmd unavailable
         # in vllm-ascend; awk is universally present)
-        _SH_IF_DETECT = (
+        _sh_if_detect = (
             "$(awk '$2==\"00000000\"{print $1;exit}'"
             " /proc/net/route 2>/dev/null || echo eth0)"
         )
@@ -923,17 +923,17 @@ def build_start_script(params: Dict[str, Any]) -> str:
 
             if node_rank == 0:
                 # Detect this node's IP for Ray scheduling.
-                script_parts.append(_SH_VLLM_HOST)
+                script_parts.append(_sh_vllm_host)
                 if is_ascend:
                     # Ascend: use HCCL instead of NCCL
                     script_parts.append("export HCCL_WHITELIST_DISABLE=1")
                     script_parts.append("export HCCL_IF_IP=$VLLM_HOST_IP")
                     script_parts.append(
                         "export HCCL_SOCKET_IFNAME="
-                        + _SH_IF_DETECT)
+                        + _sh_if_detect)
                     script_parts.append(
                         "export TP_SOCKET_IFNAME="
-                        + _SH_IF_DETECT)
+                        + _sh_if_detect)
                     script_parts.append("export RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES=1")
                     script_parts.append("export ASCEND_PROCESS_LOG_PATH=/tmp/ray_vllm010")
                 else:
@@ -941,7 +941,7 @@ def build_start_script(params: Dict[str, Any]) -> str:
                     script_parts.append(f"export TP_SOCKET_IFNAME={os.getenv('NCCL_SOCKET_IFNAME', 'eth0')}")
                 script_parts.append(
                     "export GLOO_SOCKET_IFNAME="
-                    + _SH_IF_DETECT + "\n"
+                    + _sh_if_detect + "\n"
                 )
                 # Ray 资源声明：根据引擎版本自动适配
                 ray_head_resource = _get_ray_resource_flag(engine, params)
@@ -1035,18 +1035,18 @@ def build_start_script(params: Dict[str, Any]) -> str:
                         f" 2>/dev/null || hostname -i)"
                     )
                     script_parts.append(
-                        "export HCCL_SOCKET_IFNAME=" + _SH_IF_DETECT)
+                        "export HCCL_SOCKET_IFNAME=" + _sh_if_detect)
                     script_parts.append(
-                        "export TP_SOCKET_IFNAME=" + _SH_IF_DETECT)
+                        "export TP_SOCKET_IFNAME=" + _sh_if_detect)
                     script_parts.append("export RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES=1")
                     script_parts.append("export ASCEND_PROCESS_LOG_PATH=/tmp/ray_vllm010")
                     # Worker also needs VLLM_HOST_IP for Ray node matching
-                    script_parts.append(_SH_VLLM_HOST)
+                    script_parts.append(_sh_vllm_host)
                 else:
                     script_parts.append(f"export NCCL_SOCKET_IFNAME={os.getenv('NCCL_SOCKET_IFNAME', 'eth0')}")
                     script_parts.append(f"export TP_SOCKET_IFNAME={os.getenv('NCCL_SOCKET_IFNAME', 'eth0')}")
                     # Worker's own routable IP (for Ray node-ip-address)
-                    script_parts.append(_SH_VLLM_HOST)
+                    script_parts.append(_sh_vllm_host)
                     script_parts.append("for i in $(seq 1 60); do")
                     script_parts.append(
                         f"  python3 -c \"import socket;"
@@ -1060,7 +1060,7 @@ def build_start_script(params: Dict[str, Any]) -> str:
                     script_parts.append(f"HEAD_IP=\"{head_addr}\"")
                 script_parts.append(
                     "export GLOO_SOCKET_IFNAME="
-                    + _SH_IF_DETECT + "\n"
+                    + _sh_if_detect + "\n"
                 )
                 # Ray 资源声明：根据引擎版本自动适配（与 head 节点一致）
                 ray_worker_resource = _get_ray_resource_flag(engine, params)
@@ -1092,7 +1092,7 @@ def build_start_script(params: Dict[str, Any]) -> str:
             if is_ascend:
                 script_parts.extend([
                     "export HCCL_IF_IP="
-                    "${POD_IP:-" + _SH_DETECT_IP + "}",
+                    "${POD_IP:-" + _sh_detect_ip + "}",
                     f"export GLOO_SOCKET_IFNAME={net_if}",
                     f"export TP_SOCKET_IFNAME={net_if}",
                     f"export HCCL_SOCKET_IFNAME={net_if}",

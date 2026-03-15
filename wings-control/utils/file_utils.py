@@ -1,21 +1,19 @@
-# =============================================================================
-# 文件: utils/file_utils.py
-# 用途: 安全文件 I/O 辅助函数，用于共享卷工件和配置文件操作
-# 状态: 活跃，复用自 wings 项目的文件工具模块
-#
-# 功能概述:
-#   本模块提供安全的文件操作函数，主要功能:
-#   - get_directory_size()    : 计算目录总大小（字节）
-#   - safe_write_file()       : 安全写入文件（支持 JSON/文本，指定权限）
-#   - check_permission_640()  : 检查文件权限是否为 640
-#   - check_torch_dtype()     : 检查模型 config.json 中 torch_dtype 是否支持
-#   - load_json_config()      : 安全加载 JSON 配置文件
-#
-# Sidecar 架构契约:
-#   - 保持命令/状态工件写入的可靠性
-#   - 权限和 JSON 写入语义保持稳定
-#
-# =============================================================================
+"""安全文件 I/O 辅助函数，用于共享卷工件和配置文件操作。
+
+复用自 wings 项目的文件工具模块。
+
+功能概述:
+    本模块提供安全的文件操作函数，主要功能:
+    - get_directory_size()    : 计算目录总大小（字节）
+    - safe_write_file()       : 安全写入文件（支持 JSON/文本，指定权限）
+    - check_permission_640()  : 检查文件权限是否为 640
+    - check_torch_dtype()     : 检查模型 config.json 中 torch_dtype 是否支持
+    - load_json_config()      : 安全加载 JSON 配置文件
+
+Sidecar 架构契约:
+    - 保持命令/状态工件写入的可靠性
+    - 权限和 JSON 写入语义保持稳定
+"""
 # Copyright (c) xFusion Digital Technologies Co., Ltd. 2025-2025. All rights reserved.
 
 import os

@@ -1,31 +1,3 @@
-# =============================================================================
-# 文件: proxy/speaker_logging.py
-# 用途: 结构化日志辅助，用于代理请求生命周期、诊断和追踪上下文
-# 状态: 活跃，复用自 wings 项目的可观测性辅助模块
-#
-# 功能概述:
-#   本模块实现 multi-worker 场景下的日志级别控制:
-#   - 用于控制哪些 worker 输出 INFO 级别日志
-#   - 避免多 worker 日志重复，减少日志量
-#   - 支持关闭 uvicorn.access 访问日志
-#   - 支持指定 speaker worker 索引
-#
-# 配置环境变量:
-#   - LOG_INFO_SPEAKERS:    INFO 级别日志的 speaker worker 数量 (默认 1)
-#   - LOG_WORKER_COUNT:     总 worker 数，默认从 --workers 或环境变量推断
-#   - KEEP_ACCESS_LOG:      是否保留 uvicorn.access 日志
-#   - LOG_SPEAKER_INDEXES:  明确指定的 speaker worker 索引 (如 "0,2")
-#   - WORKER_INDEX:         当前 worker 索引
-#
-# 工作原理:
-#   如果指定了 LOG_SPEAKER_INDEXES 和 WORKER_INDEX，直接匹配；
-#   否则用 pid hash % LOG_WORKER_COUNT 决定是否为 speaker。
-#
-# Sidecar 架构契约:
-#   - 日志 schema 保持稳定，供下游解析
-#   - 避免在热路径做昂贵的格式化
-#
-# =============================================================================
 # -*- coding: utf-8 -*-
 """
 multi-worker 日志级别控制。

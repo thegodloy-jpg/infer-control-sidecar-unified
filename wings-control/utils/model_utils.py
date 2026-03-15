@@ -1,27 +1,25 @@
-# =============================================================================
-# 文件: utils/model_utils.py
-# 用途: 模型元数据解析和架构识别辅助函数
-# 状态: 活跃，在命令生成路径中被复用
-#
-# 功能概述:
-#   本模块提供模型元信息提取，用于引擎自动选择和参数默认值决策:
-#   - ModelIdentifier 类: 读取 config.json 并解析模型架构/类型/量化方式
-#   - 模型架构映射表: 以架构名为 key，映射到已验证模型列表
-#   - 模型类型分类: llm/embedding/rerank
-#
-# 支持的模型架构:
-#   - LLM:       DeepseekV3ForCausalLM, DeepseekV32ForCausalLM,
-#                Glm4ForCausalLM, Glm4MoeForCausalLM,
-#                Qwen2ForCausalLM, Qwen3ForCausalLM, Qwen3MoeForCausalLM,
-#                Qwen3NextForCausalLM, LlamaForCausalLM
-#   - Embedding: XLMRobertaModel, BertModel, Qwen3ForCausalLM(Embedding)
-#   - Rerank:    XLMRobertaForSequenceClassification
-#
-# Sidecar 架构契约:
-#   - 模型识别必须保持确定性（同参数同结果）
-#   - 解析器行为向后兼容
-#
-# =============================================================================
+"""模型元数据解析和架构识别辅助函数。
+
+在命令生成路径中被复用。
+
+功能概述:
+    本模块提供模型元信息提取，用于引擎自动选择和参数默认值决策:
+    - ModelIdentifier 类: 读取 config.json 并解析模型架构/类型/量化方式
+    - 模型架构映射表: 以架构名为 key，映射到已验证模型列表
+    - 模型类型分类: llm/embedding/rerank
+
+支持的模型架构:
+    - LLM:       DeepseekV3ForCausalLM, DeepseekV32ForCausalLM,
+                 Glm4ForCausalLM, Glm4MoeForCausalLM,
+                 Qwen2ForCausalLM, Qwen3ForCausalLM, Qwen3MoeForCausalLM,
+                 Qwen3NextForCausalLM, LlamaForCausalLM
+    - Embedding: XLMRobertaModel, BertModel, Qwen3ForCausalLM(Embedding)
+    - Rerank:    XLMRobertaForSequenceClassification
+
+Sidecar 架构契约:
+    - 模型识别必须保持确定性（同参数同结果）
+    - 解析器行为向后兼容
+"""
 # Copyright (c) xFusion Digital Technologies Co., Ltd. 2025-2025. All rights reserved.
 # -*- coding: utf-8 -*-
 

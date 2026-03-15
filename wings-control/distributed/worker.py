@@ -1,26 +1,25 @@
-# =============================================================================
-# File: distributed/worker.py
-# Purpose: 分布式工作节点（Worker）服务
-# Origin:  移植自 wings/distributed/worker.py，适配 sidecar 脚本生成模式
-#
-# 功能概述:
-#   每个 Worker 节点的职责:
-#   1. 启动时向 Master 注册自身 IP 和端口
-#   2. 启动后台线程定期发送心跳
-#   3. 暴露 /api/start_engine 接口，收到请求后:
-#      - 调用 engine adapter 的 build_start_script() 生成 bash 脚本
-#      - 将脚本写入共享卷 /shared-volume/start_command.sh
-#      - engine 容器读取并执行脚本
-#
-# 与 wings 版本的核心差异:
-#   - wings: Worker 直接调用 start_engine_service() 通过 subprocess 启动引擎
-#   - sidecar: Worker 只生成脚本写入共享卷，由 engine 容器执行
-#   - 新增 /api/node_info 接口，供 Master 查询本节点分布式信息
-#
-# Sidecar 架构契约:
-#   - Worker 不直接启动引擎进程
-#   - 脚本写入路径由 settings.SHARED_VOLUME_PATH 控制
-# =============================================================================
+"""分布式工作节点（Worker）服务。
+
+移植自 wings/distributed/worker.py，适配 sidecar 脚本生成模式。
+
+功能概述:
+    每个 Worker 节点的职责:
+    1. 启动时向 Master 注册自身 IP 和端口
+    2. 启动后台线程定期发送心跳
+    3. 暴露 /api/start_engine 接口，收到请求后:
+       - 调用 engine adapter 的 build_start_script() 生成 bash 脚本
+       - 将脚本写入共享卷 /shared-volume/start_command.sh
+       - engine 容器读取并执行脚本
+
+与 wings 版本的核心差异:
+    - wings: Worker 直接调用 start_engine_service() 通过 subprocess 启动引擎
+    - sidecar: Worker 只生成脚本写入共享卷，由 engine 容器执行
+    - 新增 /api/node_info 接口，供 Master 查询本节点分布式信息
+
+Sidecar 架构契约:
+    - Worker 不直接启动引擎进程
+    - 脚本写入路径由 settings.SHARED_VOLUME_PATH 控制
+"""
 # Copyright (c) xFusion Digital Technologies Co., Ltd. 2025-2025. All rights reserved.
 
 from __future__ import annotations

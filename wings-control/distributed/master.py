@@ -1,30 +1,29 @@
-# =============================================================================
-# File: distributed/master.py
-# Purpose: 分布式主节点（Master）服务
-# Origin:  移植自 wings/distributed/master.py，适配 sidecar 脚本生成模式
-#
-# 功能概述:
-#   Master 是分布式系统的入口和协调中心，通过 FastAPI 暴露:
-#     POST /api/nodes/register  - Worker 注册
-#     GET  /api/nodes           - 查询所有活跃节点
-#     POST /api/start_engine    - 启动推理引擎（分布式/单机）
-#     POST /api/inference       - 分发推理任务
-#     POST /api/heartbeat       - 接收心跳
-#
-# 核心流程 (start_engine):
-#   1. 分布式模式: 解析 nodes 参数，通过 ThreadPoolExecutor 并发
-#      向每个 Worker 发送启动请求，Worker 生成脚本写入共享卷
-#   2. 单机模式: 调度器选最优 Worker，转发启动请求
-#
-# 与 wings 版本的核心差异:
-#   - wings: Worker 调用 start_engine_service() 直接启动进程
-#   - sidecar: Worker 调用 build_start_script() 生成脚本 → 写入共享卷
-#   - 新增: Master 在分发时自动计算并注入 nnodes/node_rank/head_node_addr
-#
-# Sidecar 架构契约:
-#   - Master 负责分布式协调，不直接操作引擎进程
-#   - 所有引擎启动通过 Worker → 共享卷 → engine 容器的链路完成
-# =============================================================================
+"""分布式主节点（Master）服务。
+
+移植自 wings/distributed/master.py，适配 sidecar 脚本生成模式。
+
+功能概述:
+    Master 是分布式系统的入口和协调中心，通过 FastAPI 暴露:
+      POST /api/nodes/register  - Worker 注册
+      GET  /api/nodes           - 查询所有活跃节点
+      POST /api/start_engine    - 启动推理引擎（分布式/单机）
+      POST /api/inference       - 分发推理任务
+      POST /api/heartbeat       - 接收心跳
+
+核心流程 (start_engine):
+    1. 分布式模式: 解析 nodes 参数，通过 ThreadPoolExecutor 并发
+       向每个 Worker 发送启动请求，Worker 生成脚本写入共享卷
+    2. 单机模式: 调度器选最优 Worker，转发启动请求
+
+与 wings 版本的核心差异:
+    - wings: Worker 调用 start_engine_service() 直接启动进程
+    - sidecar: Worker 调用 build_start_script() 生成脚本 -> 写入共享卷
+    - 新增: Master 在分发时自动计算并注入 nnodes/node_rank/head_node_addr
+
+Sidecar 架构契约:
+    - Master 负责分布式协调，不直接操作引擎进程
+    - 所有引擎启动通过 Worker -> 共享卷 -> engine 容器的链路完成
+"""
 # Copyright (c) xFusion Digital Technologies Co., Ltd. 2025-2025. All rights reserved.
 
 from __future__ import annotations

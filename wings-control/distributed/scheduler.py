@@ -1,19 +1,18 @@
-# =============================================================================
-# File: distributed/scheduler.py
-# Purpose: 分布式任务调度器
-# Origin:  移植自 wings/distributed/scheduler.py，适配 sidecar 包路径
-#
-# 功能概述:
-#   根据可配置策略从活跃 Worker 节点中选择最优节点，并在失败时自动重试。
-#   支持三种调度策略:
-#     - least_load: 最小负载优先（默认）
-#     - round_robin: 轮询
-#     - random: 随机
-#
-# Sidecar 适配:
-#   - 包路径从 wings.distributed → distributed
-#   - 逻辑与 wings 版本完全一致
-# =============================================================================
+"""分布式任务调度器。
+
+移植自 wings/distributed/scheduler.py，适配 sidecar 包路径。
+
+功能概述:
+    根据可配置策略从活跃 Worker 节点中选择最优节点，并在失败时自动重试。
+    支持三种调度策略:
+      - least_load: 最小负载优先（默认）
+      - round_robin: 轮询
+      - random: 随机
+
+Sidecar 适配:
+    - 包路径从 wings.distributed -> distributed
+    - 逻辑与 wings 版本完全一致
+"""
 # Copyright (c) xFusion Digital Technologies Co., Ltd. 2025-2025. All rights reserved.
 
 import logging
@@ -62,29 +61,12 @@ class TaskScheduler:
         """停止调度器（当前仅记录日志）。"""
         logging.info("Task scheduler stopped successfully")
 
-    @staticmethod
-    def _least_load(nodes: Dict) -> str:
-        """最少负载策略：选择负载最低的节点。"""
-        return min(
-            nodes.items(),
-            key=lambda x: x[1]["workload"]
-            if isinstance(x[1], dict)
-            else x[1].workload,
-        )[0]
-
-    def _round_robin(self, nodes: Dict) -> str:
-        """轮询策略：按顺序依次选择节点。"""
-        keys = list(nodes.keys())
-        selected = keys[self._rr_index % len(keys)]
-        self._rr_index += 1
-        return selected
-
     def set_policy(self, policy: str):
         """设置调度策略。"""
         self.policy = policy
         logging.info("Scheduling policy set to: %s", policy)
 
-    def schedule(self, url: str, data: Dict, retries: int = 0):
+    def schedule(self, url: str, data: Dict, retries: int = 0) -> dict:
         """调度任务到 Worker 节点。
 
         Args:
@@ -120,6 +102,7 @@ class TaskScheduler:
                         raise Exception("No available worker nodes") from e
                 else:
                     raise
+        raise RuntimeError("Maximum retry attempts reached")
 
     def select_worker(self) -> Optional[Dict]:
         """选择工作节点并返回完整节点信息。"""
@@ -127,6 +110,25 @@ class TaskScheduler:
         if not node_id:
             return None
         return self.monitor.get_active_nodes().get(node_id)
+
+    # ── private methods ──────────────────────────────────────────────────
+
+    @staticmethod
+    def _least_load(nodes: Dict) -> str:
+        """最少负载策略：选择负载最低的节点。"""
+        return min(
+            nodes.items(),
+            key=lambda x: x[1]["workload"]
+            if isinstance(x[1], dict)
+            else x[1].workload,
+        )[0]
+
+    def _round_robin(self, nodes: Dict) -> str:
+        """轮询策略：按顺序依次选择节点。"""
+        keys = list(nodes.keys())
+        selected = keys[self._rr_index % len(keys)]
+        self._rr_index += 1
+        return selected
 
     def _select_node(self) -> Optional[str]:
         """根据策略选择节点。"""
@@ -141,7 +143,7 @@ class TaskScheduler:
         else:
             return random.choice(list(active_nodes.keys()))
 
-    def _forward_request(self, node_id: str, url: str, data: Dict):
+    def _forward_request(self, node_id: str, url: str, data: Dict) -> dict:
         """转发请求到工作节点。"""
         node_info = self.monitor.get_active_nodes().get(node_id)
         if not node_info:
@@ -154,6 +156,6 @@ class TaskScheduler:
             return response.json()
         except requests.exceptions.RequestException as e:
             logging.error(
-                f"Failed to forward request to node {node_id}: {e}"
+                "Failed to forward request to node %s: %s", node_id, e
             )
             raise

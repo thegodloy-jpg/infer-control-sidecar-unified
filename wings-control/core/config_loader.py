@@ -1,22 +1,22 @@
-# =============================================================================
-# File: core/config_loader.py
-# Purpose: 多层配置加载与合并器 — 是 launcher 控制平面最大的单个模块。
-# Architecture:
-#   负责把多层配置源（硬件默认、引擎默认、模型专属、用户自定义、CLI 参数）
-#   合并为一份统一的参数字典，提供给 engine adapter 使用。
-# Config Merge Priority (low → high):
-#   1. 硬件默认配置 (e.g., config/vllm_default.json)
-#   2. 模型专属配置 (model_deploy_config 匹配)
-#   3. 用户自定义配置 (--config-file 指定的 JSON)
-#   4. CLI 参数 / 环境变量覆盖
-# Key Responsibilities:
-#   - 引擎自动选择（_auto_select_engine）
-#   - 参数名映射（engine_parameter_mapping.json）
-#   - 张量并行度自动设置
-#   - PD 分离 / LMCache / Router / Soft FP8 等高级特性注入
-#   - 分布式参数注入（Ray / NIXL / HCCL）
-#   - 张量并行度自动设置
-# =============================================================================
+"""多层配置加载与合并器 ── launcher 控制平面最大的单个模块。
+
+Architecture:
+    负责把多层配置源（硬件默认、引擎默认、模型专属、用户自定义、CLI 参数）
+    合并为一份统一的参数字典，提供给 engine adapter 使用。
+
+Config Merge Priority (low -> high):
+    1. 硬件默认配置 (e.g., config/vllm_default.json)
+    2. 模型专属配置 (model_deploy_config 匹配)
+    3. 用户自定义配置 (--config-file 指定的 JSON)
+    4. CLI 参数 / 环境变量覆盖
+
+Key Responsibilities:
+    - 引擎自动选择（_auto_select_engine）
+    - 参数名映射（engine_parameter_mapping.json）
+    - 张量并行度自动设置
+    - PD 分离 / LMCache / Router / Soft FP8 等高级特性注入
+    - 分布式参数注入（Ray / NIXL / HCCL）
+"""
 # Copyright (c) xFusion Digital Technologies Co., Ltd. 2025-2025. All rights reserved.
 # -*- coding: utf-8 -*-
 

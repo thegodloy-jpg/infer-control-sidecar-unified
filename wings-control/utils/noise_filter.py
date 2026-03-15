@@ -1,27 +1,3 @@
-# =============================================================================
-# 文件: utils/noise_filter.py
-# 用途: 日志/输出噪声过滤辅助，改善运行时信号清晰度
-# 状态: 活跃，复用自 wings 项目
-#
-# 功能概述:
-#   本模块用于过滤高频低价值的日志消息，减少日志噪声:
-#   - /health 探针访问日志
-#   - "Prefill batch." / "Decode batch." 调试日志
-#   - pynvml 的 FutureWarning 警告
-#   - stdout/stderr 的覆盖过滤
-#
-# 配置环境变量:
-#   - NOISE_FILTER_DISABLE=1       : 完全禁用所有过滤
-#   - HEALTH_FILTER_ENABLE=0/1     : /health 日志过滤（默认 1）
-#   - BATCH_NOISE_FILTER_ENABLE=0/1: Prefill/Decode 噪声过滤（默认 1）
-#   - PYNVML_FILTER_ENABLE=0/1     : pynvml 警告过滤（默认 1）
-#   - STDIO_FILTER_ENABLE=0/1      : stdout/stderr 过滤（默认 1）
-#
-# Sidecar 架构契约:
-#   - 避免过滤有意义的错误诊断信息
-#   - 过滤规则透明可维护
-#
-# =============================================================================
 # -*- coding: utf-8 -*-
 """
 日志与输出噪声过滤模块。

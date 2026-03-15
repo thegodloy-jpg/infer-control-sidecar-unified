@@ -1,33 +1,3 @@
-# =============================================================================
-# 文件: proxy/queueing.py
-# 用途: 排队与并发原语，控制代理请求准入
-# 状态: 活跃，复用自 wings 项目的流量控制模块
-#
-# 功能概述:
-#   本模块实现了双闸门 FIFO 排队控制器，为代理层提供背压与公平准入。
-#
-# 设计分层:
-#   ┌─ Gate-0 ─── GATE0_LOCAL_CAP 个并发槽（高优先级请求或预留资源）
-#   ├─ Gate-1 ─── GATE1_LOCAL_CAP 个并发槽（普通请求溢出通道）
-#   └─ Queue  ─── 最多 LOCAL_QUEUE_MAXSIZE 个等待者（FIFO 软队列）
-#
-# 工作流程:
-#   1. 请求进入时先尝试 Gate-0
-#   2. Gate-0 已满则尝试 Gate-1
-#   3. 两个闸门都已满则进入队列等待
-#   4. release() 在有等待者时优先移交令牌 (handover)
-#   5. 无等待者时释放 semaphore
-#
-# 溢出策略 (QUEUE_OVERFLOW_MODE):
-#   - block       : put() 阻塞直到队列有空位
-#   - drop_oldest : 丢弃队列最老的一个等待者以腾出空位
-#   - 其它        : 直接返回 503
-#
-# Sidecar 架构契约:
-#   - 不破坏公平性和背压行为
-#   - 接口保持稳定，供 gateway 集成
-#
-# =============================================================================
 # -*- coding: utf-8 -*-
 """
 双闸门 FIFO 排队控制器（multi-worker 版）。
@@ -120,9 +90,9 @@ class Waiter:
     __slots__ = ("fut", "enq_ts", "pos")
 
     def __init__(self, fut: asyncio.Future, enq_ts: float, pos: int):
-        self.fut = fut          #  set_result(layer:int)  0:Gate-0, 1:Gate-1
-        self.enq_ts = enq_ts    #
-        self.pos = pos          #
+        self.fut = fut          # set_result(layer:int) 0:Gate-0, 1:Gate-1
+        self.enq_ts = enq_ts    # 入队时间戳
+        self.pos = pos          # 队列位置编号
 
 
 class QueueGate:
@@ -142,10 +112,10 @@ class QueueGate:
     - 其它       ：直接返回 503
     """
     def __init__(self):
-        #  app/healthz
+        # 最大并发请求数（app/healthz 接口除外）
         self.max_inflight = int(C.LOCAL_PASS_THROUGH_LIMIT)
 
-        #   +
+        # Gate-0 + Gate-1 容量分配
         g0_cap = max(0, int(getattr(C, "GATE0_LOCAL_CAP", 0)))
         g1_cap = max(0, int(getattr(C, "GATE1_LOCAL_CAP", max(0, self.max_inflight - g0_cap))))
 
@@ -154,7 +124,7 @@ class QueueGate:
         self.g0 = asyncio.Semaphore(self.g0_cap) if self.g0_cap > 0 else None
         self.g1 = asyncio.Semaphore(self.g1_cap) if self.g1_cap > 0 else None
 
-        #
+        # 队列配置
         self.max_qsize = int(C.LOCAL_QUEUE_MAXSIZE)
         self.q: Optional[asyncio.Queue[Waiter]] = (
             asyncio.Queue(maxsize=self.max_qsize) if self.max_qsize > 0 else None
@@ -167,7 +137,7 @@ class QueueGate:
               max_inflight=self.max_inflight,
               g0_cap=self.g0_cap, g1_cap=self.g1_cap,
               qmax=self.max_qsize)
-    #  Gate-0 + Gate-1  #
+    # ── Gate-0 + Gate-1 操作 ──
 
     @property
     def inflight(self) -> int:

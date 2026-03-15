@@ -1,21 +1,19 @@
-# =============================================================================
-# 文件: utils/env_utils.py
-# 用途: 环境变量解析辅助函数，供 adapter 和 launcher 配置解析使用
-# 状态: 活跃，复用自 wings 项目的环境工具模块
-#
-# 功能概述:
-#   本模块集中管理环境变量的解析，避免各模块重复实现。
-#   主要分类:
-#   - IP 地址获取  : get_master_ip(), get_local_ip(), get_node_ips()
-#   - 端口获取     : get_server_port(), get_master_port(), get_vllm_distributed_port() 等
-#   - 特性开关     : get_lmcache_env(), get_pd_role_env(), get_router_env() 等
-#   - 配置路径     : get_router_nats_path_env() 等
-#
-# Sidecar 架构契约:
-#   - 集中环境变量解析，避免漂移
-#   - 默认值明确且对 sidecar 场景安全
-#
-# =============================================================================
+"""环境变量解析辅助函数，供 adapter 和 launcher 配置解析使用。
+
+复用自 wings 项目的环境工具模块。
+
+功能概述:
+    本模块集中管理环境变量的解析，避免各模块重复实现。
+    主要分类:
+    - IP 地址获取  : get_master_ip(), get_local_ip(), get_node_ips()
+    - 端口获取     : get_server_port(), get_master_port(), get_vllm_distributed_port() 等
+    - 特性开关     : get_lmcache_env(), get_pd_role_env(), get_router_env() 等
+    - 配置路径     : get_router_nats_path_env() 等
+
+Sidecar 架构契约:
+    - 集中环境变量解析，避免漂移
+    - 默认值明确且对 sidecar 场景安全
+"""
 # Copyright (c) xFusion Digital Technologies Co., Ltd. 2025-2025. All rights reserved.
 import os
 import socket
