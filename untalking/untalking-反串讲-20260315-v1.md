@@ -1,6 +1,6 @@
 > 遗留
 > 1。accel使能逻辑，完备
-> 2.日志汇聚逻辑，以方便打屏，同时保存本地静态日志
+> 2.~~日志汇聚逻辑，以方便打屏，同时保存本地静态日志~~ ✅ 已实现（RotatingFileHandler + 噪声过滤 + speaker 多 worker 日志控制）
 > 3.页面json传参逻辑:指定开关和引擎字段后，允许命令直接转换，跳过wingscontral的参数解析逻辑，直接透传给引擎，这里透传的只局限于引擎参数，
 > 目录结构，调整。ST场景下，ray的版本。
 > 硬件检测的逻辑，我不能够本地使用的逻辑
@@ -1016,7 +1016,7 @@ python /accel-volume/install.py --features "$WINGS_ENGINE_PATCH_OPTIONS"
 
 ---
 
-## US6 日志汇聚逻辑【重构】
+## US6 日志汇聚逻辑【重构，已实现】
 
 ### 6.1 需求背景
 
@@ -1102,18 +1102,24 @@ K8s 自动添加容器名前缀，结合统一的 `[%(name)s]` 组件标签：
 
 #### 日志噪声过滤
 
-| 模块 | 过滤内容 | 机制 |
-|------|---------|------|
-| `noise_filter.py` | `/health` 探针、`Prefill/Decode batch` 噪声、pynvml 警告 | logging.Filter + sys.stdout/stderr 包装 |
-| `speaker_logging.py` | 多 worker 日志抑制、uvicorn.access、/health 出入站 | speaker 决策 + _DropByRegex Filter |
+| 模块 | 行数 | 过滤内容 | 机制 | 环境变量开关 |
+|------|------|---------|------|---------------|
+| `noise_filter.py` | 364 | `/health` 探针日志 | logging.Filter (`_DropByRegex`) | `HEALTH_FILTER_ENABLE`（默认 true） |
+| `noise_filter.py` | 364 | `Prefill/Decode batch` 噪声 | logging.Filter | `BATCH_NOISE_FILTER_ENABLE`（默认 true） |
+| `noise_filter.py` | 364 | pynvml FutureWarning | warnings.filterwarnings | `PYNVML_FILTER_ENABLE`（默认 true） |
+| `noise_filter.py` | 364 | stdout/stderr 行级过滤 | `_LineFilterIO` 包装器 | `STDIO_FILTER_ENABLE`（默认 true） |
+| `speaker_logging.py` | 507 | 多 worker 日志抑制 | speaker 决策（PID hash 或索引匹配） | `LOG_INFO_SPEAKERS` |
+| `speaker_logging.py` | 507 | uvicorn.access 日志 | `_quiet_uvicorn_access()` | — |
+| `speaker_logging.py` | 507 | `/health` 出入站 | `_install_health_log_filters()` 给 httpx/httpcore 及其子 logger | — |
 
-#### 日志文件持久化（现状）
+> **全局禁用**：`NOISE_FILTER_DISABLE=1` 可关闭 `noise_filter.py` 的全部 4 类过滤器。安装入口：`install_noise_filters()` 依次执行 `_install_logging_filters()` → `_install_warning_filters()` → `_install_stdio_filters()`。
+
+#### 日志文件持久化（已实现）
 
 Shell 层面 `wings_start.sh` 通过 `exec > >(tee -a "$LOG_FILE") 2>&1` 将全部输出
-同时写入 `/var/log/wings/wings_start.log`（5 副本滚动），**但该路径未挂载持久卷，
-容器重启后丢失**。Python 层面**无** `RotatingFileHandler`，所有日志仅输出到 stderr。
+同时写入 `/var/log/wings/wings_start.log`（5 副本滚动）。Python 层面 `log_config.py` 的 `setup_root_logging()` **已实现** `RotatingFileHandler`，写入 `/var/log/wings/wings_control.log`（50MB × 5 备份），同时包含**重复 handler 防护**（检测 `baseFilename` 避免多次添加）。
 
-#### 待实现：共享日志卷 + RotatingFileHandler
+#### 共享日志卷 + RotatingFileHandler（已实现）
 
 `kubectl logs --all-containers` 是**客户端聚合**（kubectl 分别请求各容器日志流，合并显示），Pod 内部无法直接访问其他容器的 stdout。要在 Pod 内部获取聚合日志，需要通过共享卷方案：
 
@@ -1146,12 +1152,15 @@ flowchart TD
 
 #### 实现要点
 
-| 层级 | 改动 | 说明 |
-|------|------|------|
-| `log_config.py` | 添加 `RotatingFileHandler` | `LOG_FILE_PATH=/var/log/wings/wings_control.log`，50MB × 5 副本 |
-| `wings_entry.py` | 引擎命令追加 `tee` | `python3 -m vllm... 2>&1 \| tee -a /var/log/wings/engine.log` |
-| K8s 模板 | 添加 `log-volume` (emptyDir) | wings-control 和 engine 都挂载到 `/var/log/wings` |
-| 持久化（可选） | `emptyDir` → `hostPath` 或 `PVC` | 容器重启后保留日志 |
+| 层级 | 改动 | 状态 | 说明 |
+|------|------|------|------|
+| `log_config.py` | `RotatingFileHandler`（131 行） | ✅ 已实现 | `LOG_FILE_PATH=/var/log/wings/wings_control.log`，50MB × 5 副本，含重复 handler 防护 |
+| `speaker_logging.py` | `/health` 出入站过滤（507 行） | ✅ 已实现 | 过滤 uvicorn.access inbound + httpx/httpcore（含子 logger `_client`/`_async`/`_sync`）outbound |
+| `noise_filter.py` | 4 类噪声过滤器（364 行） | ✅ 已实现 | `/health` 探针、Prefill/Decode batch、pynvml 警告、stdio 行级过滤 |
+| `health_service.py` | `configure_worker_logging()` | ✅ 已实现 | 独立 health 进程的 httpx/httpcore 日志级别设为 WARNING |
+| `wings_entry.py` | 引擎命令追加 `tee` | ✅ 已实现 | `exec > >(tee -a /var/log/wings/engine.log) 2>&1` |
+| K8s 模板 | 添加 `log-volume` (emptyDir) | 待部署配置 | wings-control 和 engine 都挂载到 `/var/log/wings` |
+| 持久化（可选） | `emptyDir` → `hostPath` 或 `PVC` | 可选 | 容器重启后保留日志 |
 
 #### 日志保存逻辑和位置
 
@@ -1213,16 +1222,17 @@ cat /var/log/wings/wings_control.log | grep wings-proxy  # 只看代理日志
 
 #### 重构改动清单
 
-| 文件 | 改动 |
-|------|------|
-| `utils/log_config.py` | **新建** — 统一格式常量 + `setup_root_logging()`；**待增** `RotatingFileHandler` 写入 `/var/log/wings/wings_control.log` |
-| `main.py` | 改用 `setup_root_logging()` + `LOGGER_LAUNCHER`，移除冗余 `[launcher]` 前缀 |
-| `proxy/proxy_config.py` | 改用 `setup_root_logging()` + `LOGGER_PROXY`，替换独立 `basicConfig` |
-| `proxy/speaker_logging.py` | `_ensure_root_handler()` 使用统一格式 |
-| `proxy/health_service.py` | 增加 `LOGGER_HEALTH` 独立 logger，替代共用 `C.logger` |
-| `wings_start.sh` | 移除死代码 `LAUNCHER_LOG_FILE` / `WINGS_PROXY_LOG_FILE` |
-| K8s 模板 | **待增** `log-volume` (emptyDir) 挂载到 `/var/log/wings`，wings-control + engine 共享 |
-| `wings_entry.py` | **待增** 引擎命令追加 `tee -a /var/log/wings/engine.log` |
+| 文件 | 改动 | 状态 |
+|------|------|------|
+| `utils/log_config.py`（131 行） | 统一格式常量 + `setup_root_logging()` + `RotatingFileHandler`（50MB × 5 备份）+ 重复 handler 防护 | ✅ 已完成 |
+| `utils/noise_filter.py`（364 行） | 4 类噪声过滤器（`/health`、`Prefill/Decode batch`、`pynvml`、`stdio`）+ 环境变量独立开关 | ✅ 已完成 |
+| `main.py` | 改用 `setup_root_logging()` + `LOGGER_LAUNCHER`，移除冗余 `[launcher]` 前缀 | ✅ 已完成 |
+| `proxy/proxy_config.py` | 改用 `setup_root_logging()` + `LOGGER_PROXY`，替换独立 `basicConfig` | ✅ 已完成 |
+| `proxy/speaker_logging.py`（507 行） | `_ensure_root_handler()` 使用统一格式 + `/health` 出入站过滤（含 httpx/httpcore 子 logger） | ✅ 已完成 |
+| `proxy/health_service.py`（160 行） | 增加 `LOGGER_HEALTH` 独立 logger + `configure_worker_logging()` + httpx/httpcore WARNING 级别 | ✅ 已完成 |
+| `wings_start.sh` | 移除死代码 `LAUNCHER_LOG_FILE` / `WINGS_PROXY_LOG_FILE` | ✅ 已完成 |
+| `wings_entry.py`（246 行） | 引擎命令追加 `tee -a /var/log/wings/engine.log` + accel_preamble 注入 | ✅ 已完成 |
+| K8s 模板 | `log-volume` (emptyDir) 挂载到 `/var/log/wings`，wings-control + engine 共享 | 待部署配置 |
 
 #### 分布式场景下的日志
 
@@ -1294,30 +1304,38 @@ flowchart LR
 
 | 环境变量 | 默认值 | 说明 |
 |---------|-------|------|
-| `LOG_FILE_PATH` | `/var/log/wings/wings_control.log` | Python 日志文件路径 |
-| `NOISE_FILTER_DISABLE` | `0`（启用过滤） | 设为 `1` 关闭噪声过滤 |
+| `LOG_FILE_PATH` | `/var/log/wings/wings_control.log` | Python 日志文件路径（`RotatingFileHandler` 目标） |
+| `NOISE_FILTER_DISABLE` | `0`（启用过滤） | 设为 `1` 关闭 `noise_filter.py` 全部 4 类过滤器 |
+| `HEALTH_FILTER_ENABLE` | `1`（启用） | `/health` 探针日志过滤 |
+| `BATCH_NOISE_FILTER_ENABLE` | `1`（启用） | Prefill/Decode batch 噪声过滤 |
+| `PYNVML_FILTER_ENABLE` | `1`（启用） | pynvml FutureWarning 过滤 |
+| `STDIO_FILTER_ENABLE` | `1`（启用） | stdout/stderr 行级过滤 |
 | `LOG_INFO_SPEAKERS` | 空（全 worker 输出 INFO） | 逗号分隔的 worker 索引，仅这些 worker 的 INFO 级别日志会输出 |
 
 ### 6.4 数据结构设计
 
-**已有常量（`log_config.py`）**：
+**已有常量（`log_config.py` 131 行）**：
 
 | 数据结构 | 描述 |
 |----------|------|
-| `LOG_FORMAT` | `"%(asctime)s [%(levelname)s] [%(name)s] %(message)s"` |
+| `LOG_FORMAT` | `"%(asctime)s [%(levelname)s] [%(name)s] %(message)s"`（支持环境变量覆盖） |
+| `LOG_DATE_FORMAT` | `"%Y-%m-%d %H:%M:%S"` |
 | `LOGGER_LAUNCHER` | logger name = `"wings-launcher"` |
 | `LOGGER_PROXY` | logger name = `"wings-proxy"` |
 | `LOGGER_HEALTH` | logger name = `"wings-health"` |
-| `setup_root_logging()` | 统一初始化 root logger 格式和 handler |
-
-**待新增常量**：
-
-| 数据结构 | 描述 |
-|----------|------|
-| `LOG_FILE_PATH` | 环境变量，默认 `/var/log/wings/wings_control.log` |
+| `LOG_FILE_PATH` | `/var/log/wings/wings_control.log`（支持环境变量覆盖） |
 | `LOG_MAX_BYTES` | `50 * 1024 * 1024`（50MB） |
 | `LOG_BACKUP_COUNT` | `5`（保留 5 个备份文件） |
-| `RotatingFileHandler` | `setup_root_logging()` 中新增，写入 `LOG_FILE_PATH`，`maxBytes=LOG_MAX_BYTES`，`backupCount=LOG_BACKUP_COUNT` |
+| `setup_root_logging()` | 统一初始化 root logger 格式、handler（`basicConfig(force=True)` + `RotatingFileHandler`），含重复 handler 去重检测 |
+
+**已实现常量（`log_config.py` 131 行）**：
+
+| 数据结构 | 描述 | 状态 |
+|----------|------|------|
+| `LOG_FILE_PATH` | 环境变量 `LOG_FILE_PATH`，默认 `/var/log/wings/wings_control.log` | ✅ 已实现 |
+| `LOG_MAX_BYTES` | `50 * 1024 * 1024`（50MB） | ✅ 已实现 |
+| `LOG_BACKUP_COUNT` | `5`（保留 5 个备份文件） | ✅ 已实现 |
+| `RotatingFileHandler` | `setup_root_logging()` 中实现，写入 `LOG_FILE_PATH`，`maxBytes=LOG_MAX_BYTES`，`backupCount=LOG_BACKUP_COUNT`；含 `baseFilename` 去重防护 | ✅ 已实现 |
 
 **K8s 卷定义**：
 
