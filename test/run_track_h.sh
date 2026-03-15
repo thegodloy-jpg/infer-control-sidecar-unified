@@ -8,11 +8,14 @@ LOGFILE="/tmp/track-h-result.log"
 echo "========== Track H 验证开始 $(date) ==========" | tee $LOGFILE
 
 # ============================================================
-# H-1: NODE_RANK=0 → master 角色判定
+# H-1: CLI --node-rank=0 → master 角色参数验证
+# 注: NODE_RANK 环境变量已移除（不再用于角色判定），
+#     角色判定改为 RANK_IP vs MASTER_IP 比较（与老版本一致）。
+#     此处仅验证 parse_launch_args 正确解析 --node-rank CLI 参数。
 # ============================================================
 echo ""
-echo "===== H-1: Master role (NODE_RANK=0) =====" | tee -a $LOGFILE
-docker run --rm -e NODE_RANK=0 -e NNODES=2 wings-control:zhanghui python3 -c '
+echo "===== H-1: Master role (--node-rank 0) =====" | tee -a $LOGFILE
+docker run --rm -e NNODES=2 wings-control:zhanghui python3 -c '
 import sys; sys.argv = ["test",
   "--engine", "vllm_ascend",
   "--model-name", "Test",
@@ -29,11 +32,12 @@ print("H-1: Master role PASS")
 H1_RESULT=$?
 
 # ============================================================
-# H-2: NODE_RANK=1 → worker 角色判定
+# H-2: CLI --node-rank=1 → worker 角色参数验证
+# 注: 同 H-1，仅验证 CLI 参数解析，不涉及角色判定逻辑。
 # ============================================================
 echo ""
-echo "===== H-2: Worker role (NODE_RANK=1) =====" | tee -a $LOGFILE
-docker run --rm -e NODE_RANK=1 -e NNODES=2 wings-control:zhanghui python3 -c '
+echo "===== H-2: Worker role (--node-rank 1) =====" | tee -a $LOGFILE
+docker run --rm -e NNODES=2 wings-control:zhanghui python3 -c '
 import sys; sys.argv = ["test",
   "--engine", "vllm_ascend",
   "--model-name", "Test",
@@ -102,12 +106,13 @@ docker run -d --name track-h-head-engine \
 
 echo "Starting head control container..." | tee -a $LOGFILE
 # 单机模拟分布式：均使用 127.0.0.1 作为 NODE_IPS 避免IB网络IP不可达
+# 角色判定: RANK_IP == MASTER_IP → master
 docker run -d --name track-h-head-control \
   --network host \
-  -e NODE_RANK=0 \
   -e NNODES=2 \
   -e HEAD_NODE_ADDR=127.0.0.1 \
   -e RANK_IP=127.0.0.1 \
+  -e MASTER_IP=127.0.0.1 \
   -e NODE_IPS=127.0.0.1,127.0.0.1 \
   -e DISTRIBUTED_EXECUTOR_BACKEND=ray \
   -v /tmp/track-h-head-shared:/shared-volume \
@@ -136,12 +141,14 @@ docker run -d --name track-h-worker-engine \
   bash -c 'while [ ! -f /shared-volume/start_command.sh ]; do sleep 1; done; bash /shared-volume/start_command.sh'
 
 echo "Starting worker control container..." | tee -a $LOGFILE
+# 注: 单机测试 RANK_IP == MASTER_IP，无法通过 IP 区分 master/worker。
+#     生产环境由 MaaS 为每个 Pod 分配唯一 RANK_IP，可正确判定角色。
 docker run -d --name track-h-worker-control \
   --network host \
-  -e NODE_RANK=1 \
   -e NNODES=2 \
   -e HEAD_NODE_ADDR=127.0.0.1 \
   -e RANK_IP=127.0.0.1 \
+  -e MASTER_IP=127.0.0.1 \
   -e DISTRIBUTED_EXECUTOR_BACKEND=ray \
   -e PROXY_PORT=28000 \
   -e HEALTH_PORT=29000 \

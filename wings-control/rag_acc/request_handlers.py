@@ -59,7 +59,7 @@ def create_chunk_request(input_data, query, chunks, extra_headers, backend_url):
         is_for_kvcache_preparation = query == "<query_warm_up>"
         data = _build_request_data(input_data, messages, is_for_kvcache_preparation)
         data_json = json.dumps(data)
-        logger.debug(f"chunk inputs: {data}")
+        logger.debug("chunk inputs: %s", data)
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             async with client.stream(
                 "POST", backend_url,
@@ -83,7 +83,7 @@ def create_combine_request(input_data, query, chunks, extra_headers, backend_url
         is_for_kvcache_preparation = preliminary_analysis.endswith("<|preparation|>") or query == "<query_warm_up>"
         data = _build_request_data(input_data, messages, is_for_kvcache_preparation)
         data_json = json.dumps(data)
-        logger.debug(f"combine_request: inputs: {data}")
+        logger.debug("combine_request: inputs: %s", data)
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             async with client.stream(
                 "POST", backend_url,

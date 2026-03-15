@@ -110,7 +110,7 @@ Get-ChildItem -Recurse -Filter "*.py" backend | ForEach-Object {
 |----------|--------|----------|------|
 | `DISTRIBUTED` | `false` | start_args_compat.py | 是否分布式模式 |
 | `NNODES` | `1` | start_args_compat.py | 节点数 |
-| `NODE_RANK` | `0` | start_args_compat.py | 当前节点序号 |
+| `NODE_RANK` | `0` | start_args_compat.py | 当前节点序号（不再从环境变量读取，由 Master 分配） |
 | `HEAD_NODE_ADDR` | `127.0.0.1` | start_args_compat.py | Head 节点地址 |
 | `NODE_IPS` | `""` | 多处 | 所有节点 IP (逗号分隔) |
 | `DISTRIBUTED_EXECUTOR_BACKEND` | `ray` | start_args_compat.py | 分布式后端 |
@@ -158,13 +158,13 @@ Get-ChildItem -Recurse -Filter "*.py" backend | ForEach-Object {
 
 | 变量 | 自动赋值逻辑 | 文件 |
 |------|-------------|------|
-| `BACKEND_URL` | `http://{backend_host}:{backend_port}` — 从 `NODE_IPS[NODE_RANK]` 或 `127.0.0.1` | main.py |
+| `BACKEND_URL` | `http://{backend_host}:{backend_port}` — 从 `RANK_IP` 或 `127.0.0.1` | main.py |
 | `BACKEND_HOST` | 同上 | main.py |
 | `VLLM_HOST_IP` | `POD_IP` → UDP trick → `hostname -i` | vllm_adapter.py |
-| `HCCL_IF_IP` | `NODE_IPS[NODE_RANK]` → `hostname -i` → `MASTER_ADDR` | mindie_adapter.py |
+| `HCCL_IF_IP` | `RANK_IP` → `hostname -i` → `MASTER_ADDR` | mindie_adapter.py |
 | `HCCL_SOCKET_IFNAME` | `/proc/net/route` 默认路由接口 → `eth0` | vllm_adapter.py |
 | `GLOO_SOCKET_IFNAME` | 同 HCCL_SOCKET_IFNAME | vllm_adapter.py |
-| `RANK` / `WORLD_SIZE` | 从 `NODE_RANK` / `NNODES` 推导 (MindIE) | mindie_adapter.py |
+| `RANK` / `WORLD_SIZE` | 从 `node_rank`（Master 分配）/ `NNODES` 推导 (MindIE) | mindie_adapter.py |
 | `MASTER_ADDR` | `HEAD_NODE_ADDR` (MindIE) | mindie_adapter.py |
 | `RANK_TABLE_FILE` | 自动生成 `/tmp/hccl_ranktable.json` | mindie_adapter.py |
 

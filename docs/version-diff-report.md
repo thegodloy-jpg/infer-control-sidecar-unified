@@ -60,7 +60,7 @@
 | 节点发现 | Worker → Master HTTP 注册 | K8s DNS 自动发现（`infer-0.infer-hl`, `infer-1.infer-hl`） |
 | 心跳/健康 | 自建 30 秒心跳线程 + Monitor | K8s livenessProbe / readinessProbe（端口 19000） |
 | 任务调度 | `TaskScheduler`（最小负载/轮循/随机） | K8s Service 负载均衡 / Ray 内置调度 |
-| Rank 分配 | `NODE_IPS` 环境变量 → 列表索引 → rank | StatefulSet 序号（`NODE_RANK` 环境变量） |
+| Rank 分配 | `NODE_IPS` 环境变量 → 列表索引 → rank | Master 动态计算并注入 `nnodes`/`node_rank`/`head_node_addr` |
 | 引擎启动 | Master API → Worker API → `start_engine_service()` | Sidecar 写 `start_command.sh` → 共享卷 → engine 容器执行 |
 | 分布式后端 | Ray 或 dp_deployment（运行时决定） | 同样支持 Ray/DP，但由 K8s 编排 |
 
@@ -404,7 +404,7 @@
 |---|---|---|
 | 参数解析 | `argparse` + `parse_known_args()`（未知参数穿透给引擎） | `LaunchArgs` 冻结数据类（全部显式声明，无穿透） |
 | 引擎选项 | sglang, vllm, mindie, wings, transformers, xllm（6 种） | vllm, vllm_ascend, sglang, mindie（4 种） |
-| 分布式参数 | `RANK_IP`, `NODE_IPS`, `MASTER_IP` | `nnodes`, `node_rank`, `head_node_addr`, `distributed_executor_backend` |
+| 分布式参数 | `RANK_IP`, `NODE_IPS`, `MASTER_IP` | `nnodes`, `node_rank`, `head_node_addr`, `distributed_executor_backend`（角色判定基于 RANK_IP vs MASTER_IP，与老版本一致） |
 | 参数来源 | CLI 优先 | CLI + 环境变量双来源 via `_env()` 辅助函数 |
 
 ### 11.2 Shell 启动器

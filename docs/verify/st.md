@@ -49,7 +49,7 @@
 
 ```
 每个 Pod
- └─ wings-control 读 NODE_RANK
+ └─ wings-control 通过 RANK_IP vs MASTER_IP 判定角色
      ├─ rank=0 → 生成 head 脚本 → (vllm-ascend) ray start --head + vllm serve
      │                          → (mindie)      写 config.json(rank=0) + mindieservice_daemon
      └─ rank=N → 生成 worker 脚本 → (vllm-ascend) ray start --address=head --block

@@ -59,7 +59,7 @@ def is_rag_scenario(chat_input: ChatCompletionRequest, request: Request) -> bool
 
 
 def extract_last_message_and_log(chat_input: ChatCompletionRequest):
-    logger.debug(f"input: {chat_input}")
+    logger.debug("input: %s", chat_input)
     messages = []
 
     if len(chat_input.messages) > 1:
@@ -90,7 +90,7 @@ def extract_last_message_and_log(chat_input: ChatCompletionRequest):
     except Exception:
         content = str(msg)
 
-    logger.debug(f"msg content: {content}, {messages}, {role}")
+    logger.debug("msg content: %s, %s, %s", content, messages, role)
     return messages, msg, role, content
 
 
@@ -105,13 +105,11 @@ async def rag_acc_chat(chat_input: ChatCompletionRequest, request: Request, back
 
     if is_rag:
         prefix, postfix, query, chunks = parse_document_chunks(content)
-        logger.debug(f"prefix: {prefix}")
-        logger.debug(f"postfix: {postfix}")
-        logger.debug(f"query: {query}")
+        logger.debug("prefix length: %d, postfix length: %d, query length: %d", len(prefix), len(postfix), len(query))
         for i, c in enumerate(chunks):
-            logger.debug(f"after chunks[{i}]: {c}")
+            logger.debug("chunk[%d] length: %d", i, len(c))
 
-    if is_dify:
+    elif is_dify:
         result = extract_dify_info(chat_input)
         query = result["user_question"]
         chunks = result["rag_documents"]

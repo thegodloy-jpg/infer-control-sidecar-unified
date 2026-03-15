@@ -503,23 +503,19 @@ flowchart LR
 ```mermaid
 flowchart TD
     A{"DISTRIBUTED?"} -->|false| B["standalone<br/>单机模式"]
-    A -->|true| C{"NODE_RANK 已设置?"}
-    C -->|"NODE_RANK=0"| D["master<br/>主节点"]
-    C -->|"NODE_RANK>0"| E["worker<br/>工作节点"]
-    C -->|"未设置/非法"| F{"原始字符串比较<br/>local_ip == master_ip?<br/>(兼容 V1)"}
-    F -->|是| D
-    F -->|否| G{"DNS 解析后比较<br/>resolve(local_ip) == resolve(master_ip)?"}
+    A -->|true| F{"RANK_IP == MASTER_IP?<br/>(原始字符串比较)"}
+    F -->|是| D["master<br/>主节点"]
+    F -->|否| G{"DNS 解析后比较<br/>resolve(RANK_IP) == resolve(MASTER_IP)?"}
     G -->|是| D
-    G -->|否| E
+    G -->|否| E["worker<br/>工作节点"]
 ```
 
-三级判定策略（按优先级）：
+两级判定策略（与老版本 wings 保持一致）：
 
 | 优先级 | 策略 | 说明 |
 |--------|------|------|
-| 1 | `NODE_RANK` 环境变量 | hostNetwork 模式下同机多 Pod 共享 IP，无法通过 IP 区分，直接用 NODE_RANK |
-| 2 | 原始字符串比较 | `local_ip == master_ip`，兼容 V1 `$MASTER_IP = $RANK_IP` 直接比较，无 DNS 查询开销 |
-| 3 | DNS 解析后比较 | MASTER_IP 为 DNS 名称（如 K8s StatefulSet headless service）时，解析为 IP 后比较 |
+| 1 | 原始字符串比较 | `RANK_IP == MASTER_IP`，与老版本 `$MASTER_IP = $RANK_IP` 直接比较一致，无 DNS 查询开销。RANK_IP 由上层（MaaS）传入，每个 Pod 唯一 |
+| 2 | DNS 解析后比较 | MASTER_IP 为 DNS 名称（如 K8s StatefulSet headless service）时，解析为 IP 后比较 |
 
 **单机模式**：
 
@@ -631,7 +627,7 @@ dp_start_rank = "2" if node_rank != 0 else "0"
 | Triton NPU Patch | 无 | ✅ 有（>= 0.14 条件性注入） | 解耦版本 领先 |
 | `--enforce-eager` | 无 | ✅ 有（>= 0.14 条件性添加） | 解耦版本 领先 |
 | 崩溃恢复 | 无 | ✅ 有（M5 新增） | 解耦版本 领先 |
-| 角色判定 | shell 字符串比较 `$MASTER_IP = $RANK_IP` | 三级策略：NODE_RANK → 原始字符串比较 → DNS 解析 | ✅ 向后兼容 |
+| 角色判定 | shell 字符串比较 `$MASTER_IP = $RANK_IP` | 两级策略：RANK_IP vs MASTER_IP 字符串比较 → DNS 解析（与老版本一致） | ✅ 一致 |
 | MindIE ranktable | 外部 `RANK_TABLE_PATH` 必须预置 | 首选外部 `RANK_TABLE_PATH`，降级动态生成 | ✅ 向后兼容 |
 
 ### 3.3 接口设计

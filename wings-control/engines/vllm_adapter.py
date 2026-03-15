@@ -523,7 +523,7 @@ def _build_ascend910_9362_env_commands(params: Dict[str, Any], engine: str) -> L
             "export OMP_NUM_THREADS=10",
             "export HCCL_BUFFSIZE=1024"
         ])
-        logger.info(f"[Ascend910_9362] Set environment variables for {model_info.model_architecture}")
+        logger.info("[Ascend910_9362] Set environment variables for %s", model_info.model_architecture)
 
     return env_commands
 
@@ -1051,8 +1051,9 @@ def build_start_script(params: Dict[str, Any]) -> str:
                     num_nodes = len(nodes_list) if nodes_list else 1
                     tp_size = params.get("device_count", 1)
                     ray_pp_extra = f" --pipeline-parallel-size {num_nodes} --tensor-parallel-size {tp_size}"
-                    logger.info(f"[vllm_ascend ray] Set parallel parameters: "
-                                f"pipeline_parallel_size={num_nodes}, tensor_parallel_size={tp_size}")
+                    logger.info("[vllm_ascend ray] Set parallel parameters: "
+                                "pipeline_parallel_size=%s, tensor_parallel_size=%s",
+                                num_nodes, tp_size)
                 script_parts.append(
                     f"exec {cmd}{eager_flag}"
                     f"{speculative_extra}{sparse_extra}"

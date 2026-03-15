@@ -23,6 +23,7 @@ class NonBlockingQueue:
     def get_nowait(self):
         if self.empty():
             raise asyncio.QueueEmpty
+        # 与 put() 使用相同的锁保护（同步快速路径，锁在外层获取）
         item = self._queue.popleft()
         if self.empty():
             self._not_empty.clear()
@@ -35,11 +36,15 @@ class NonBlockingQueue:
 
     async def get(self):
         while True:
-            try:
-                return self.get_nowait()
-            except asyncio.QueueEmpty:
-                self._not_empty.clear()
-                await self._not_empty.wait()
+            async with self._lock:
+                try:
+                    item = self._queue.popleft()
+                    if self.empty():
+                        self._not_empty.clear()
+                    return item
+                except IndexError:
+                    self._not_empty.clear()
+            await self._not_empty.wait()
 
     def finish(self):
         self._finished = True

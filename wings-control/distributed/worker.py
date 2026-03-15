@@ -45,10 +45,7 @@ from config.settings import settings
 from utils.env_utils import get_local_ip, get_master_ip, get_master_port, get_worker_port
 from utils.file_utils import safe_write_file
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-)
+# 注意：不在模块级别调用 basicConfig，避免与 setup_root_logging 冲突
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Wings Distributed Inference Worker Node")
@@ -242,11 +239,15 @@ def register_with_master(max_retries: int = 30, retry_interval: float = 5.0):
     )
 
 
+# 心跳停止事件，用于优雅关闭心跳线程
+_heartbeat_stop = threading.Event()
+
+
 def send_heartbeat():
     """后台线程：定期向 Master 发送心跳，失败时指数退避。"""
     consecutive_failures = 0
     max_backoff = 300  # 最大退避间隔（秒）
-    while True:
+    while not _heartbeat_stop.is_set():
         try:
             heartbeat_url = f"{config.master_url}/api/heartbeat"
             data = {"node_id": config.node_id, "workload": 0.0}
@@ -258,9 +259,9 @@ def send_heartbeat():
         # 指数退避：正常时用 heartbeat_interval，失败时按 2^n 增长到 max_backoff
         if consecutive_failures > 0:
             backoff = min(config.heartbeat_interval * (2 ** consecutive_failures), max_backoff)
-            time.sleep(backoff)
+            _heartbeat_stop.wait(backoff)
         else:
-            time.sleep(config.heartbeat_interval)
+            _heartbeat_stop.wait(config.heartbeat_interval)
 
 
 # ---------------------------------------------------------------------------

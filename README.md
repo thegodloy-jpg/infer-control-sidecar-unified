@@ -142,8 +142,10 @@ docker run --runtime nvidia -p 18000:18000 -p 19000:19000 \
   --model-name Qwen2-7B --model-path /models/Qwen2-7B --engine vllm
 
 # 分布式 rank-0
+# 角色判定: RANK_IP == MASTER_IP → master，RANK_IP != MASTER_IP → worker
 docker run --network host -e DISTRIBUTED=true -e NNODES=2 \
-  -e NODE_RANK=0 -e HEAD_NODE_ADDR=192.168.1.100 \
+  -e RANK_IP=192.168.1.100 -e MASTER_IP=192.168.1.100 \
+  -e HEAD_NODE_ADDR=192.168.1.100 \
   wings-control:latest --model-name DeepSeek-R1 --model-path /models/DeepSeek-R1 --distributed
 ```
 
@@ -230,10 +232,10 @@ livenessProbe:
 |------|------|
 | `DISTRIBUTED` | 是否分布式 |
 | `NNODES` | 节点总数 |
-| `NODE_RANK` | 当前节点序号 |
+| `RANK_IP` | 当前节点 IP（由 MaaS 上层传入，每个 Pod 唯一） |
+| `MASTER_IP` | Master 节点 IP（角色判定: RANK_IP == MASTER_IP → master） |
 | `HEAD_NODE_ADDR` | Head 节点 IP |
 | `NODE_IPS` | 所有节点 IP (逗号分隔) |
-| `MASTER_IP` | Master 节点 IP (Master-Worker 模式) |
 
 ### 硬件
 

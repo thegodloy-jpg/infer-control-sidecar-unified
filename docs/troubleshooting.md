@@ -174,7 +174,7 @@ kubectl exec <pod> -c wings-control -n wings-control -- env | grep BACKEND_URL
 ```
 
 **常见错误**:
-- `BACKEND_URL` 指向了错误的地址 → 检查 `NODE_IPS` 和 `NODE_RANK`
+- `BACKEND_URL` 指向了错误的地址 → 检查 `RANK_IP` 和 `MASTER_IP`
 - 引擎监听在非 0.0.0.0 地址 → 检查引擎启动参数中的 `--host`
 
 ### 6. 分布式: Ray Worker 连接失败

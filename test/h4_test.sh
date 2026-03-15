@@ -1,9 +1,10 @@
 #!/bin/bash
 echo '=== H-4: Worker dispatch ==='
+# 注: NODE_RANK 环境变量已移除，角色判定基于 RANK_IP vs MASTER_IP
 docker run -d --name track-h-worker-control \
-  -e NODE_RANK=1 -e NNODES=2 \
+  -e NNODES=2 \
   -e RANK_IP=127.0.0.1 \
-  -e MASTER_ADDR=127.0.0.1 -e MASTER_PORT=16000 \
+  -e MASTER_IP=127.0.0.1 -e MASTER_PORT=16000 \
   -v /tmp/track-h-worker-shared:/shared-volume \
   --network=host \
   wings-control:zhanghui \

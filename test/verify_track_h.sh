@@ -16,11 +16,13 @@ echo ''
 echo '=== H-1 & H-2: Role Detection ==='
 
 # H-2 first (worker, simpler - just test role detection)
-echo '--- H-2: Worker role (NODE_RANK=1) ---'
+# 注: NODE_RANK 环境变量已移除，角色判定改为 RANK_IP vs MASTER_IP 比较。
+#     单机测试 RANK_IP == MASTER_IP，无法区分 master/worker，仅验证启动流程。
+echo '--- H-2: Worker role (RANK_IP != MASTER_IP in production) ---'
 docker run --rm \
-  -e NODE_RANK=1 -e NNODES=2 \
+  -e NNODES=2 \
   -e RANK_IP=127.0.0.1 \
-  -e MASTER_ADDR=127.0.0.1 -e MASTER_PORT=16000 \
+  -e MASTER_IP=127.0.0.1 \
   -v /tmp/track-h-worker-shared:/shared-volume \
   wings-control:zhanghui \
   timeout 8 bash wings_start.sh --engine vllm_ascend \
@@ -29,12 +31,14 @@ docker run --rm \
     --device-count 1 --distributed --trust-remote-code 2>&1 | head -20
 echo '[H-2] Worker role detection done'
 
-# H-1: Master role (NODE_RANK=0) - start as daemon for later tests
+# H-1: Master role (RANK_IP == MASTER_IP) - start as daemon for later tests
+# 注: 角色判定基于 RANK_IP vs MASTER_IP 比较（与老版本 wings 一致）
 echo ''
-echo '--- H-1: Master role (NODE_RANK=0) ---'
+echo '--- H-1: Master role (RANK_IP == MASTER_IP) ---'
 docker run -d --name track-h-head-control \
-  -e NODE_RANK=0 -e NNODES=2 \
+  -e NNODES=2 \
   -e RANK_IP=127.0.0.1 \
+  -e MASTER_IP=127.0.0.1 \
   -e NODE_IPS=127.0.0.1,127.0.0.1 \
   -v /tmp/track-h-head-shared:/shared-volume \
   --network=host \
@@ -87,10 +91,11 @@ fi
 echo ''
 echo '=== H-4: Worker start_command.sh dispatch ==='
 # Start worker control
+# 注: 单机测试 RANK_IP == MASTER_IP，无法通过 IP 区分角色，仅验证进程启动。
 docker run -d --name track-h-worker-control \
-  -e NODE_RANK=1 -e NNODES=2 \
+  -e NNODES=2 \
   -e RANK_IP=127.0.0.1 \
-  -e MASTER_ADDR=127.0.0.1 -e MASTER_PORT=16000 \
+  -e MASTER_IP=127.0.0.1 \
   -v /tmp/track-h-worker-shared:/shared-volume \
   --network=host \
   wings-control:zhanghui \
@@ -163,8 +168,9 @@ docker run -d --name track-h-head-engine \
   bash -c 'while [ ! -f /shared-volume/start_command.sh ]; do sleep 1; done; bash /shared-volume/start_command.sh'
 
 # Start head control (single node)
+# 注: NNODES=1 单节点模式，无需区分 master/worker
 docker run -d --name track-h-head-control \
-  -e NODE_RANK=0 -e NNODES=1 \
+  -e NNODES=1 \
   -v /tmp/track-h-head-shared:/shared-volume \
   --network=host \
   wings-control:zhanghui \

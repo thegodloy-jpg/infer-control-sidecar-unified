@@ -30,8 +30,9 @@ docker run -d --name track-h-head-engine \
 
 # Start head control (single node mode)
 echo 'Starting control...'
+# 注: NNODES=1 单节点模式，无需 NODE_RANK
 docker run -d --name track-h-head-control \
-  -e NODE_RANK=0 -e NNODES=1 \
+  -e NNODES=1 \
   -v /tmp/track-h-head-shared:/shared-volume \
   --network=host \
   wings-control:zhanghui \

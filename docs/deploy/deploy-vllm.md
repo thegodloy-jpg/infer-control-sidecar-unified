@@ -144,7 +144,7 @@ env:
 - **hostNetwork: true**: 分布式模式使用宿主机网络，Ray 节点间直接通信
 - **podManagementPolicy: Parallel**: StatefulSet 所有 Pod 同时启动
 - **podAntiAffinity**: 确保每个 Pod 调度到不同物理节点
-- **NODE_RANK**: 通过 K8s Downward API 自动注入 (从 Pod ordinal 推导)
+- **NODE_RANK**: K8s YAML 中通过 Downward API 注入，仅用于 init 脚本 IP 交换；Python 角色判定通过 RANK_IP vs MASTER_IP
 
 #### 3. Ray 启动流程
 

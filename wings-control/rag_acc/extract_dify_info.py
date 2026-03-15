@@ -3,18 +3,24 @@ from fastchat.protocol.openai_api_protocol import ChatCompletionRequest
 from proxy.proxy_config import logger
 
 
+def _get_msg_field(msg, field: str, default=""):
+    """Pydantic 模型 / dict 兼容的字段提取。"""
+    if isinstance(msg, dict):
+        return msg.get(field, default)
+    return getattr(msg, field, default)
+
+
 def is_dify_scenario(chat_input: ChatCompletionRequest) -> bool:
     if len(chat_input.messages) != 2:
         return False
     system_msg = None
-    user_msg = None
     for msg in chat_input.messages:
-        if isinstance(msg, dict) and msg.get("role") == "system":
+        if _get_msg_field(msg, "role") == "system":
             system_msg = msg
-        elif isinstance(msg, dict) and msg.get("role") == "user":
-            user_msg = msg
-    if system_msg and "<context>" in system_msg.get("content", "") and "</context>" in system_msg.get("content", ""):
-        return True
+    if system_msg:
+        content = _get_msg_field(system_msg, "content", "")
+        if "<context>" in content and "</context>" in content:
+            return True
     return False
 
 
@@ -25,22 +31,21 @@ def extract_dify_info(chat_input: ChatCompletionRequest):
     user_question = ""
     rag_documents = []
     for msg in chat_input.messages:
-        if isinstance(msg, dict) and msg.get("role") == "system":
-            system_prompt = msg.get("content", "")
-            content = msg.get("content", "")
-            logger.info(f"Raw content: {repr(content)}")
+        if _get_msg_field(msg, "role") == "system":
+            system_prompt = _get_msg_field(msg, "content", "")
+            content = system_prompt
+            logger.debug("Dify system prompt length: %d", len(content))
             if isinstance(content, str):
                 context_match = re.search(r'<context>\n(.*?)\n</context>', content, re.DOTALL)
                 if context_match:
                     context_content = context_match.group(1)
-                    logger.info(f"Extracted context_content: {repr(context_content)}")
-                    doc_chunks = context_content.split('\n\n')
+                    logger.debug("Extracted context chunks: %d", len(doc_chunks))
                     doc_chunks = [item.strip() for item in doc_chunks if item.strip()]
                     rag_documents.extend(doc_chunks)
                 else:
                     logger.info("No <context> tag found in content.")
-        elif isinstance(msg, dict) and msg.get("role") == "user":
-            user_question = msg.get("content", "")
+        elif _get_msg_field(msg, "role") == "user":
+            user_question = _get_msg_field(msg, "content", "")
     return {
         "rag_documents": rag_documents,
         "system_prompt": system_prompt,

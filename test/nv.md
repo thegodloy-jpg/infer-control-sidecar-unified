@@ -420,9 +420,9 @@ curl "http://localhost:19000/health?minimal=true"
 ```bash
 # Master 节点
 export DISTRIBUTED=true
-export NODE_RANK=0
 export NODE_IPS="7.6.52.148,7.6.16.150"
 export MASTER_IP=7.6.52.148
+export RANK_IP=7.6.52.148
 
 bash /app/wings_start.sh \
   --engine vllm \
@@ -438,8 +438,8 @@ bash /app/wings_start.sh \
 ```
 
 **验证点：**
-- [ ] Master 角色正确判定（NODE_RANK=0 或 local_ip==MASTER_IP）
-- [ ] Worker 角色正确判定（NODE_RANK>0）
+- [ ] Master 角色正确判定（RANK_IP == MASTER_IP）
+- [ ] Worker 角色正确判定（RANK_IP != MASTER_IP）
 - [ ] Master API 启动（MASTER_PORT 端口）
 - [ ] Worker 注册到 Master（/api/nodes/register）
 - [ ] Worker 注册等待超时重试（默认 300s，最多 2 次重试）
@@ -450,9 +450,10 @@ bash /app/wings_start.sh \
 ### 7.2 角色判定逻辑
 ```bash
 # 测试不同角色判定路径
-# 路径1：NODE_RANK 优先
+# 路径1：RANK_IP 与 MASTER_IP 字符串直接比较（与老版本 wings 一致）
 export DISTRIBUTED=true
-export NODE_RANK=0   # → master
+export RANK_IP=7.6.52.148
+export MASTER_IP=7.6.52.148   # RANK_IP == MASTER_IP → master
 
 # 路径2：IP 匹配
 export DISTRIBUTED=true
@@ -467,20 +468,19 @@ export MASTER_IP=hostname_of_master
 
 **验证点：**
 - [ ] DISTRIBUTED 支持多种 true 写法（"1"/"true"/"yes"/"on"）
-- [ ] **三级判定优先级**：NODE_RANK > 原始字符串比较(local_ip == master_ip) > DNS 解析比较
-- [ ] 第二级：raw string 直接比较 local_ip 与 MASTER_IP（V1 兼容性）
-- [ ] 第三级：socket.gethostbyname() 解析后比较（支持 K8s DNS 名如 infer-0.infer-hl）
+- [ ] **两级判定优先级**：原始字符串比较(RANK_IP == MASTER_IP) > DNS 解析比较
+- [ ] 第一级：raw string 直接比较 RANK_IP 与 MASTER_IP（与老版本 V1 完全一致）
+- [ ] 第二级：socket.gethostbyname() 解析后比较（支持 K8s DNS 名如 infer-0.infer-hl）
 - [ ] DNS 解析失败时日志告警并回退为 worker
 - [ ] MASTER_IP 未设置 → 回退单机模式
-- [ ] hostNetwork 场景下多 Pod 同 IP 必须配置 NODE_RANK
 
 ### 7.2b vLLM dp_deployment 分布式模式
 ```bash
 # Master 节点 (rank-0)
 export DISTRIBUTED=true
-export NODE_RANK=0
 export NODE_IPS="7.6.52.148,7.6.16.150"
 export MASTER_IP=7.6.52.148
+export RANK_IP=7.6.52.148
 
 bash /app/wings_start.sh \
   --engine vllm \
@@ -506,7 +506,8 @@ export RAY_RESOURCE_FLAG='--resources='"'"'{"custom_GPU": 1}'"'"''
 
 # 在分布式 Ray 模式下启动
 export DISTRIBUTED=true
-export NODE_RANK=0
+export RANK_IP=7.6.52.148
+export MASTER_IP=7.6.52.148
 ```
 
 **验证点：**
@@ -544,9 +545,9 @@ bash /app/wings_start.sh \
 ```bash
 export PD_ROLE=P
 export DISTRIBUTED=true
-export NODE_RANK=0
 export NODE_IPS="7.6.52.148,7.6.16.150"
 export MASTER_IP=7.6.52.148
+export RANK_IP=7.6.52.148
 
 bash /app/wings_start.sh \
   --engine vllm \
@@ -568,8 +569,8 @@ bash /app/wings_start.sh \
 ```bash
 export PD_ROLE=D
 export DISTRIBUTED=true
-export NODE_RANK=1
 export MASTER_IP=7.6.52.148
+export RANK_IP=7.6.16.150
 
 bash /app/wings_start.sh \
   --engine vllm \

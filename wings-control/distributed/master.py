@@ -47,10 +47,7 @@ from distributed.scheduler import TaskScheduler
 from distributed.worker import HeartbeatRequest
 from utils.env_utils import get_master_port
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-)
+# 注意：不在模块级别调用 basicConfig，避免与 setup_root_logging 冲突
 logger = logging.getLogger(__name__)
 
 

@@ -144,11 +144,7 @@ MindIE adapter 固定 key 分组：
 | MindIE extra key 写入根级别 | 需写入特定节点须使用对应原生 key 名 |
 
 #### MaaS 层面
-> 1. 必须传参engine，规则为vllm，sglang，vllm-ascend，midnie
-> 2. 硬件信息，json，形如{'device': 'nvidia', 'count': 8, 'details': [{'device_id': 0, 'name': 'NVIDIA H20', 'total_memory': 95.58, 'used_memory': 0.59, 'free_memory': 94.99, 'util': 0, 'vendor': 'Nvidia'}, {'device_id': 1, 'name': 'NVIDIA H20', 'total_memory': 95.58, 'used_memory': 0.59, 'free_memory': 94.99, 'util': 0, 'vendor': 'Nvidia'}, {'device_id': 2, 'name': 'NVIDIA H20', 'total_memory': 95.58, 'used_memory': 0.59, 'free_memory': 94.99, 'util': 0, 'vendor': 'Nvidia'}, {'device_id': 3, 'name': 'NVIDIA H20', 'total_memory': 95.58, 'used_memory': 0.59, 'free_memory': 94.99, 'util': 0, 'vendor': 'Nvidia'}, {'device_id': 4, 'name': 'NVIDIA H20', 'total_memory': 95.58, 'used_memory': 0.59, 'free_memory': 94.99, 'util': 0, 'vendor': 'Nvidia'}, {'device_id': 5, 'name': 'NVIDIA H20', 'total_memory': 95.58, 'used_memory': 0.59, 'free_memory': 94.99, 'util': 0, 'vendor': 'Nvidia'}, {'device_id': 6, 'name': 'NVIDIA H20', 'total_memory': 95.58, 'used_memory': 0.59, 'free_memory': 94.99, 'util': 0, 'vendor': 'Nvidia'}, {'device_id': 7, 'name': 'NVIDIA H20', 'total_memory': 95.58, 'used_memory': 0.59, 'free_memory': 94.99, 'util': 0, 'vendor': 'Nvidia'}], 'units': 'GB'}
 
-> 3. 针对wings-control container，分配对应共享卷，日志，模型，命令。
-> 4. 
 ```yaml
 # 基础用法
 bash /app/wings_start.sh --engine vllm --model-name xxx --model-path /models/xxx --device-count 1
@@ -291,22 +287,26 @@ flowchart LR
 
 #### 角色判定
 
-`wings_control.py._determine_role()` 两级判定策略（与老版本 wings 保持一致）：
+`wings_control.py._determine_role()` 三级判定策略：
 
 ```mermaid
 flowchart TD
     A{"DISTRIBUTED?"} -->|false| B["standalone<br/>单机模式"]
-    A -->|true| F{"原始字符串比较<br/>RANK_IP == MASTER_IP?"}
-    F -->|是| D["master<br/>主节点"]
-    F -->|否| G{"DNS 解析后比较<br/>resolve(RANK_IP) == resolve(MASTER_IP)?"}
+    A -->|true| C{"NODE_RANK 已设置?"}
+    C -->|"NODE_RANK=0"| D["master"]
+    C -->|"NODE_RANK>0"| E["worker"]
+    C -->|"未设置/非法"| F{"原始字符串比较<br/>local_ip == master_ip?"}
+    F -->|是| D
+    F -->|否| G{"DNS 解析后比较<br/>resolve(local_ip) == resolve(master_ip)?"}
     G -->|是| D
-    G -->|否| E["worker<br/>工作节点"]
+    G -->|否| E
 ```
 
 | 优先级 | 策略 | 适用场景 |
 |--------|------|---------|
-| 1 | 原始字符串比较 `RANK_IP == MASTER_IP` | 与老版本 `$MASTER_IP = $RANK_IP` 一致，RANK_IP 由 MaaS 上层传入，每个 Pod 唯一 |
-| 2 | DNS 解析后比较 | K8s StatefulSet headless service，MASTER_IP 为 DNS 名称的场景 |
+| 1 | `NODE_RANK` 环境变量 | hostNetwork 同机多 Pod 共享 IP |
+| 2 | 原始字符串比较 | 兼容 V1 `$MASTER_IP = $RANK_IP` |
+| 3 | DNS 解析后比较 | K8s StatefulSet headless service |
 
 #### 单机 vs 分布式统一流程
 
@@ -496,7 +496,6 @@ sequenceDiagram
 | ④ 安装+启动 | engine 容器 | `python install.py --features "$WINGS_ENGINE_PATCH_OPTIONS"` → 引擎启动 |
 
 #### MaaS 层面
-> 1.针对三个container设置对应的挂在卷和启动脚本。
 
 **ENGINE_VERSION 多重用途**：
 
@@ -505,10 +504,8 @@ sequenceDiagram
 | Accel 补丁版本 | `wings_entry.py` → `WINGS_ENGINE_PATCH_OPTIONS` version 字段 |
 | initContainer 镜像标签 | K8s YAML `wings-accel:${ENGINE_VERSION}` |
 | Ray 资源声明适配 | `vllm_adapter.py` `_get_ray_resource_flag()` |
+| Triton+enforce-eager | `vllm_adapter.py` `_need_triton_patch_and_eager()` |
 
-
-
-#### wings-control 层面
 **5 个高级特性（需补丁）**：
 
 | 高级特性 | 环境变量 | features 名称 |
@@ -524,6 +521,9 @@ sequenceDiagram
 ```json
 {"vllm": {"version": "0.12.rc1", "features": ["speculative_decode", "sparse_kv"]}}
 ```
+
+#### wings-control 层面
+
 **① 构建特性环境变量**（`wings_entry.py` → `_build_accel_env_line(engine)`）：
 
 ```python
@@ -563,6 +563,20 @@ flowchart TD
 
 轻量 Alpine initContainer，职责：将补丁文件传到共享卷。
 
+| 组件 | 说明 |
+|------|------|
+| `Dockerfile` | Alpine 3.18，`WORKDIR=/accel`，`chmod +x` 安装脚本 |
+| `install.py` | 补丁安装入口，解析 `--features` JSON → pip install whl |
+| `supported_features.json` | 特性声明（引擎→版本→补丁列表），校验用 |
+| `wings_engine_patch/install.sh` | 底层安装：`pip install *.whl` |
+
+**安装链路**：
+
+```
+initContainer: /accel/* → cp -r → /accel-volume/
+engine容器: python /accel-volume/install.py --features "$WINGS_ENGINE_PATCH_OPTIONS"
+  → 解析 JSON → 校验 supported_features.json → pip install *.whl
+```
 
 **错误处理**：`install.py` 不存在 → WARNING（不 crash）；JSON 解析失败 → ERROR + 非 0 退出；不支持特性 → WARNING（不阻断）；pip 失败 → `set -euo pipefail` 捕获中止。
 
@@ -637,7 +651,7 @@ flowchart TD
 
 **现状**：`wings_start.sh` 通过 `exec > >(tee -a "$LOG_FILE") 2>&1` 写入 `/var/log/wings/wings_start.log`（5 副本滚动），但未挂载持久卷，重启丢失。Python 层无 `RotatingFileHandler`。
 
-**共享日志卷**：
+**待实现：共享日志卷方案**：
 
 ```mermaid
 flowchart TD

@@ -126,11 +126,7 @@ run(argv)
 ```
 DISTRIBUTED 环境变量？
   ├─ 否 → standalone
-  └─ 是
-       ├── NODE_RANK 环境变量存在？
-       │    ├─ NODE_RANK=0 → master
-       │    └─ NODE_RANK>0 → worker
-       └── 无 NODE_RANK → 比较本机 IP vs MASTER_IP
+  └─ 是 → 比较 RANK_IP vs MASTER_IP
             ├─ 相同 → master
             └─ 不同 → worker
 ```
@@ -508,8 +504,8 @@ request.params → 重建 LaunchArgs
 |------|--------|------|
 | `DISTRIBUTED` | false | 启用分布式 |
 | `MASTER_IP` | — | Master 节点 IP |
+| `RANK_IP` | — | 当前 Pod IP（MaaS 注入，全局唯一） |
 | `NODE_IPS` | — | 所有节点 IP（逗号分隔） |
-| `NODE_RANK` | — | 当前节点编号 |
 
 ### Sidecar 特有
 | 变量 | 默认值 | 说明 |

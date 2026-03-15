@@ -16,8 +16,8 @@
 
 | 序号 | 验证项 | 状态 | 结果 |
 |------|--------|------|------|
-| H-1 | 角色判定（NODE_RANK=0 → master） | ✅ | PASS — 正确进入 master 分支 |
-| H-2 | 角色判定（NODE_RANK=1 → worker） | ✅ | PASS — 正确进入 worker 分支 |
+| H-1 | 角色判定（RANK_IP == MASTER_IP → master） | ✅ | PASS — 正确进入 master 分支 |
+| H-2 | 角色判定（RANK_IP != MASTER_IP → worker） | ✅ | PASS — 正确进入 worker 分支 |
 | H-3 | Head start_command.sh 生成 | ✅ | PASS — 2s 内生成含 Ray/HCCL/vLLM 参数的启动脚本 |
 | H-4 | Worker start_command.sh 分发 | ✅ | PASS — Master→Worker /api/start_engine 分发成功 |
 | H-5 | HCCL 环境变量设置 | ✅ | PASS — 5 个 HCCL 相关变量均正确写入 start_command.sh |
@@ -35,10 +35,12 @@
 
 **命令**:
 ```bash
-# Head 控制面容器 (NODE_RANK=0)
+# Head 控制面容器 (RANK_IP == MASTER_IP → master)
+# 注: 角色判定基于 RANK_IP vs MASTER_IP 比较（与老版本 wings 一致）
 docker run -d --name track-h-head-control \
-  -e NODE_RANK=0 -e NNODES=2 \
+  -e NNODES=2 \
   -e RANK_IP=127.0.0.1 \
+  -e MASTER_IP=127.0.0.1 \
   -e NODE_IPS=127.0.0.1,127.0.0.1 \
   -v /tmp/track-h-head-shared:/shared-volume \
   wings-control:zhanghui \
@@ -47,11 +49,11 @@ docker run -d --name track-h-head-control \
     --model-path /mnt/cephfs/models/DeepSeek-R1-Distill-Qwen-1.5B \
     --device-count 1 --distributed --trust-remote-code
 
-# Worker 控制面容器 (NODE_RANK=1)
+# Worker 控制面容器 (RANK_IP != MASTER_IP → worker，单机测试中 RANK_IP 相同无法区分)
 docker run -d --name track-h-worker-control \
-  -e NODE_RANK=1 -e NNODES=2 \
+  -e NNODES=2 \
   -e RANK_IP=127.0.0.1 \
-  -e MASTER_ADDR=127.0.0.1 -e MASTER_PORT=16000 \
+  -e MASTER_IP=127.0.0.1 \
   -v /tmp/track-h-worker-shared:/shared-volume \
   --network=host \
   wings-control:zhanghui \
@@ -73,7 +75,7 @@ docker run -d --name track-h-worker-control \
 [worker] Worker registered with master at 127.0.0.1:16000
 [worker] Worker start_command.sh generated after 2s
 ```
-**判定**: ✅ PASS — NODE_RANK=0 正确进入 master 分支，NODE_RANK=1 正确进入 worker 分支
+**判定**: ✅ PASS — RANK_IP 与 MASTER_IP 比较正确进入相应分支
 
 ---
 
@@ -198,8 +200,9 @@ docker run -d --name track-h-head-engine \
   bash -c 'while [ ! -f /shared-volume/start_command.sh ]; do sleep 1; done; bash /shared-volume/start_command.sh'
 
 # Head control 容器
+# 注: NNODES=1 单节点模式
 docker run -d --name track-h-head-control \
-  -e NODE_RANK=0 -e NNODES=1 \
+  -e NNODES=1 \
   -v /tmp/track-h-head-shared:/shared-volume \
   --network=host \
   wings-control:zhanghui \
@@ -446,7 +449,9 @@ Track H 的实际分布式部署采用 **基于 Ray 的多 Pod 方案**，每个
 │  ┌──────────────────────┐    ┌──────────────────────┐       │
 │  │ Pod: infer-0          │    │ Pod: infer-1          │       │
 │  │ IP: 10.42.0.11 (CNI) │    │ IP: 10.42.0.12 (CNI) │       │
-│  │ NODE_RANK=0 (Master)  │    │ NODE_RANK=1 (Worker)  │       │
+│  │ RANK_IP=10.42.0.11  │    │ RANK_IP=10.42.0.12  │       │
+│  │ Master (RANK_IP==    │    │ Worker (RANK_IP!=    │       │
+│  │   MASTER_IP)         │    │   MASTER_IP)         │       │
 │  │                       │    │                       │       │
 │  │ ┌─────────────────┐  │    │ ┌─────────────────┐  │       │
 │  │ │ wings-control    │  │    │ │ wings-control    │  │       │
@@ -512,7 +517,7 @@ Track H 的实际分布式部署采用 **基于 Ray 的多 Pod 方案**，每个
 
 Track H 分布式验证在单机环境中完成了控制面层面的全面验证：
 
-1. **角色判定机制正确**: NODE_RANK=0→master, NODE_RANK=1→worker，分支逻辑清晰
+1. **角色判定机制正确**: RANK_IP == MASTER_IP → master, RANK_IP != MASTER_IP → worker，与老版本 wings 保持一致
 2. **启动脚本生成完整**: start_command.sh 包含 CANN source、HCCL 环境变量、Ray 启动、vLLM 服务启动，参数传递无误
 3. **Master→Worker 协调链路完整**: 注册→心跳→分发三阶段均验证通过
 4. **端到端推理链路验证通过**: control→proxy→engine 推理返回有效 JSON 响应

@@ -206,7 +206,7 @@ ssh root@7.6.16.150 "cd /home/zhanghui/wings-control && docker build -t wings-co
 
 | 序号 | 验证项 | 对应 nv.md 章节 |
 |------|--------|----------------|
-| F-1 | 角色判定逻辑（NODE_RANK/IP/DNS） | 七/7.2 |
+| F-1 | 角色判定逻辑（RANK_IP/MASTER_IP/DNS） | 七/7.2 |
 | F-2 | vLLM Ray 多节点分布式启动 | 七/7.1 |
 | F-3 | Worker 注册 & 心跳 | 七/7.3 |
 | F-4 | Master → Worker 启动指令分发 | 七/7.1 |

@@ -64,7 +64,7 @@
 | Pod IP | 所有 Pod 共享宿主 IP | 每 Pod 独立 IP |
 | 端口冲突 | 同端口只有一个 Pod 能绑定 | 无冲突 |
 | Ray 节点识别 | 无法区分不同 Pod | IP 不同，正常区分 |
-| wings NODE_RANK 判断 | 依赖 IP，同 IP 则误判 | 根据 Pod name 序号派生 |
+| wings 角色判定 | 依赖 IP，同 IP 则误判 | IP 不同，正常区分（RANK_IP vs MASTER_IP） |
 
 ### 3.2 为什么用 hostPath IP 交换？
 
@@ -206,7 +206,7 @@ kubectl -n wings-control logs infer-1 -c engine --tail=20
 预期日志关键词:
 
 ```
-[wings] NODE_RANK=0 ... MASTER_IP=10.42.1.x
+[wings] RANK_IP=10.42.1.x MASTER_IP=10.42.1.x
 Ray runtime started
 Application startup complete
 INFO: Started server process, listening on http://0.0.0.0:17000

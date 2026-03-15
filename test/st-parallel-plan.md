@@ -492,12 +492,12 @@ docker exec track-a-control bash -c "
 **依赖**: Phase 1 & Phase 2 完成，清理前序容器释放 NPU
 **NPU**: ASCEND_VISIBLE_DEVICES=0,1,2,3,4,5,6,7（8 卡）
 
-> **单机分布式方案**：在 .110 一台机器上用 8 张 NPU 模拟 2 节点（每节点 4 卡），通过 `NODE_RANK` + `NNODES=2` 环境变量驱动角色判定。
+> **单机分布式方案**：在 .110 一台机器上用 8 张 NPU 模拟 2 节点（每节点 4 卡），通过 `RANK_IP`/`MASTER_IP` + `NNODES=2` 环境变量驱动角色判定。
 
 | 序号 | 验证项 | 对应 st.md 章节 | 说明 |
 |------|--------|----------------|------|
-| H-1 | 角色判定逻辑（NODE_RANK=0 → master） | 七/7.2 | 检查 parse_launch_args 的角色解析 |
-| H-2 | 角色判定逻辑（NODE_RANK=1 → worker） | 七/7.2 | Worker 跳过 proxy 启动 |
+| H-1 | 角色判定逻辑（RANK_IP == MASTER_IP → master） | 七/7.2 | 检查 _determine_role() 角色解析 |
+| H-2 | 角色判定逻辑（RANK_IP != MASTER_IP → worker） | 七/7.2 | Worker 跳过 proxy 启动 |
 | H-3 | vLLM-Ascend Ray head 启动 | 七/7.1 | ray start --head + HCCL env |
 | H-4 | vLLM-Ascend Ray worker 注册 | 七/7.1 | ray start --address=head --block |
 | H-5 | HCCL 单机多卡通信 | 八/8.2 | HCCL_WHITELIST_DISABLE=1 |
@@ -525,8 +525,9 @@ docker run -d --name track-h-head-engine \
 
 docker run -d --name track-h-head-control \
   --network host \
-  -e NODE_RANK=0 \
   -e NNODES=2 \
+  -e RANK_IP=127.0.0.1 \
+  -e MASTER_IP=127.0.0.1 \
   -e HEAD_NODE_ADDR=127.0.0.1 \
   -e DISTRIBUTED_EXECUTOR_BACKEND=ray \
   -v /tmp/track-h-head-shared:/shared-volume \
@@ -554,8 +555,9 @@ docker run -d --name track-h-worker-engine \
 
 docker run -d --name track-h-worker-control \
   --network host \
-  -e NODE_RANK=1 \
   -e NNODES=2 \
+  -e RANK_IP=127.0.0.1 \
+  -e MASTER_IP=127.0.0.1 \
   -e HEAD_NODE_ADDR=127.0.0.1 \
   -e DISTRIBUTED_EXECUTOR_BACKEND=ray \
   -e PROXY_PORT=28000 \

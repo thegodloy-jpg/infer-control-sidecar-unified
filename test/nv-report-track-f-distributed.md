@@ -306,19 +306,19 @@ ssh root@7.6.52.148 "docker images | grep -E 'vllm|wings-control'"
 ssh root@7.6.16.150 "docker images | grep -E 'vllm|wings-control'"
 ```
 
-## F-5 角色自动判定 (三级判定)
+## F-5 角色自动判定 (两级判定)
 
-> 说明：wings-control V2 使用 `DISTRIBUTED`、`NODE_RANK`、`MASTER_IP`、`NODE_IPS` 环境变量，
+> 说明：wings-control V2 使用 `DISTRIBUTED`、`RANK_IP`、`MASTER_IP`、`NODE_IPS` 环境变量，
 > 而非 `HOST_ROLE`/`MASTER_ADDR`/`WORLD_SIZE`（这些在 V2 中不存在）。
-> 角色判定采用三级策略：NODE_RANK → 原始字符串比较(local_ip == MASTER_IP) → DNS 解析比较。
+> 角色判定采用两级策略（与老版本 wings 保持一致）：RANK_IP 字符串比较 → DNS 解析比较。
 
 ### 操作步骤
 ```bash
-# Master (148): 验证 NODE_RANK=0 → master
+# Master (148): 验证 RANK_IP == MASTER_IP → master
 ssh root@7.6.52.148 << 'EOF'
 docker run --rm \
   -e DISTRIBUTED=true \
-  -e NODE_RANK=0 \
+  -e RANK_IP=7.6.52.148 \
   -e MASTER_IP=7.6.52.148 \
   -e NODE_IPS=7.6.52.148,7.6.16.150 \
   -v /home/weight/Qwen3-0.6B:/models/Qwen3-0.6B \
@@ -326,17 +326,17 @@ docker run --rm \
   python3 -c "
 import os
 print(f'DISTRIBUTED = {os.environ.get(\"DISTRIBUTED\", \"false\")}')
-print(f'NODE_RANK   = {os.environ.get(\"NODE_RANK\", \"unset\")}')
+print(f'RANK_IP     = {os.environ.get(\"RANK_IP\", \"unset\")}')
 print(f'MASTER_IP   = {os.environ.get(\"MASTER_IP\", \"\")}')
 print(f'NODE_IPS    = {os.environ.get(\"NODE_IPS\", \"\")}')
 "
 EOF
 
-# Worker (150): 验证 NODE_RANK=1 → worker
+# Worker (150): 验证 RANK_IP != MASTER_IP → worker
 ssh root@7.6.16.150 << 'EOF'
 docker run --rm \
   -e DISTRIBUTED=true \
-  -e NODE_RANK=1 \
+  -e RANK_IP=7.6.16.150 \
   -e MASTER_IP=7.6.52.148 \
   -e NODE_IPS=7.6.52.148,7.6.16.150 \
   -v /data/models/Qwen3-0.6B:/models/Qwen3-0.6B \
@@ -344,7 +344,7 @@ docker run --rm \
   python3 -c "
 import os
 print(f'DISTRIBUTED = {os.environ.get(\"DISTRIBUTED\", \"false\")}')
-print(f'NODE_RANK   = {os.environ.get(\"NODE_RANK\", \"unset\")}')
+print(f'RANK_IP     = {os.environ.get(\"RANK_IP\", \"unset\")}')
 print(f'MASTER_IP   = {os.environ.get(\"MASTER_IP\", \"\")}')
 print(f'NODE_IPS    = {os.environ.get(\"NODE_IPS\", \"\")}')
 "
@@ -352,16 +352,15 @@ EOF
 ```
 
 ### 验证点
-- [ ] 148 NODE_RANK=0 → 判定为 master
-- [ ] 150 NODE_RANK=1 → 判定为 worker
-- [ ] 不设 NODE_RANK 但 MASTER_IP=local_ip → 判定为 master（字符串比较）
+- [ ] 148 RANK_IP == MASTER_IP → 判定为 master
+- [ ] 150 RANK_IP != MASTER_IP → 判定为 worker
 - [ ] MASTER_IP 为 DNS 名时 → 通过 gethostbyname 解析后比较
 
 ### 结果
 | 验证点 | 结果 | 备注 |
 |--------|------|------|
-| NODE_RANK=0 → master | ✅ | 150/148 双机均通过 |
-| NODE_RANK=1 → worker | ✅ | 150/148 双机均通过 |
+| RANK_IP == MASTER_IP → master | ✅ | 150/148 双机均通过 |
+| RANK_IP != MASTER_IP → worker | ✅ | 150/148 双机均通过 |
 | IP 字符串比较 | ✅ | local_ip==MASTER_IP→master, ≠→worker |
 | DNS 解析回退 | ✅ | hostname→gethostbyname 解析后匹配 master |
 
@@ -405,7 +404,7 @@ docker run -d --name track-f-control-zhanghui \
   -v /tmp/track-f-shared:/shared-volume \
   -v /home/weight/Qwen3-0.6B:/models/Qwen3-0.6B \
   -e DISTRIBUTED=true \
-  -e NODE_RANK=0 \
+  -e RANK_IP=7.6.52.148 \
   -e MASTER_IP=7.6.52.148 \
   -e NODE_IPS=7.6.52.148,7.6.16.150 \
   wings-control:test-zhanghui \
@@ -452,7 +451,7 @@ docker run -d --name track-f-control-zhanghui \
   -v /tmp/track-f-shared:/shared-volume \
   -v /data/models/Qwen3-0.6B:/models/Qwen3-0.6B \
   -e DISTRIBUTED=true \
-  -e NODE_RANK=1 \
+  -e RANK_IP=7.6.16.150 \
   -e MASTER_IP=7.6.52.148 \
   -e NODE_IPS=7.6.52.148,7.6.16.150 \
   wings-control:test-zhanghui \
@@ -563,4 +562,4 @@ EOF
 - **期望行为**: wings-control 正常启动
 - **实际行为**: 报错 "Unknown parameter: --nnodes"
 - **涉及文件**: wings_start.sh
-- **修复建议**: nnodes/node-rank 由环境变量 NODE_RANK/NODE_IPS 控制，不需要传参（已修复）
+- **修复建议**: nnodes/node-rank 由 Master 动态计算注入，不需要传参（已修复）

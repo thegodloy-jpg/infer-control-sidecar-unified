@@ -105,15 +105,21 @@ class TaskScheduler:
         if not node_id:
             raise Exception("No available worker nodes")
 
-        try:
-            return self._forward_request(node_id, url, data)
-        except Exception as e:
-            logging.warning(
-                f"Task scheduling failed "
-                f"(attempt {retries + 1}/{self.max_retries}): {e}"
-            )
-            time.sleep(self.retry_delay)
-            return self.schedule(url, data, retries + 1)
+        for attempt in range(retries, self.max_retries):
+            try:
+                return self._forward_request(node_id, url, data)
+            except Exception as e:
+                logging.warning(
+                    f"Task scheduling failed "
+                    f"(attempt {attempt + 1}/{self.max_retries}): {e}"
+                )
+                if attempt + 1 < self.max_retries:
+                    time.sleep(self.retry_delay)
+                    node_id = self._select_node()
+                    if not node_id:
+                        raise Exception("No available worker nodes")
+                else:
+                    raise
 
     def select_worker(self) -> Optional[Dict]:
         """选择工作节点并返回完整节点信息。"""

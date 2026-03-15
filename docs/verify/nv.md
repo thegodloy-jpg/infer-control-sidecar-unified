@@ -19,7 +19,7 @@ GPU 与模型约束：
 方案 A 本质：把 wings/wings 裸机分布式逻辑"搬"到 K8s，用 StatefulSet Pod 序号替代 IP 地址判断角色。
 
 
-每个 Pod  └─ wings-control 读 NODE_RANK       ├─ rank=0 → 生成 head 脚本 → ray start --head + vllm serve       └─ rank=N → 生成 worker 脚本 → ray start --address=head --blockPod 间通信靠 Headless Service 提供固定 DNS，head 地址写死为 infer-0.infer-hl
+每个 Pod  └─ wings-control 通过 RANK_IP vs MASTER_IP 判定角色       ├─ master → 生成 head 脚本 → ray start --head + vllm serve       └─ worker → 生成 worker 脚本 → ray start --address=head --blockPod 间通信靠 Headless Service 提供固定 DNS，head 地址写死为 infer-0.infer-hl
 
 步骤:
 

@@ -66,7 +66,7 @@ spec:
 ```yaml
 DISTRIBUTED: "true"
 NNODES: "2"
-NODE_RANK: <pod-index>         # 从 Pod 标签自动注入 (0 或 1)
+NODE_RANK: <pod-index>         # K8s YAML IP 交换用，Python 角色判定通过 RANK_IP vs MASTER_IP
 HEAD_NODE_ADDR: "7.6.16.150"
 ENGINE: "sglang"
 ENGINE_PORT: "17000"

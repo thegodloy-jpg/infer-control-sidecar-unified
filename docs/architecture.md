@@ -168,7 +168,8 @@ StatefulSet (replicas=NNODES, podManagementPolicy=Parallel)
                    + health(:19000) (无 proxy)
 ```
 
-- `NODE_RANK` 通过 K8s Downward API (`metadata.labels['apps.kubernetes.io/pod-index']`) 注入
+- 角色判定: wings-control 通过比较 `RANK_IP` 与 `MASTER_IP` 确定 master/worker（两级策略：字符串比较 → DNS 解析）
+- K8s YAML 中 `NODE_RANK` 仅用于 init 脚本 IP 交换，Python 代码不再读取
 - Head 发现: DNS 查询 `<sts>-0.<headless-svc>` 或 `HEAD_NODE_ADDR` 环境变量
 
 ### SGLang (nnodes)

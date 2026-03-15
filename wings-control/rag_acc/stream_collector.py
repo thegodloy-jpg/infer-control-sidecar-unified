@@ -28,7 +28,7 @@ class StreamCollector:
     async def collect_and_stream(self):
         self.start_time = time.time()
         await self._initialize_collectors()
-        logger.debug(f"create task for combine")
+        logger.debug("create task for combine")
         combine_queue = NonBlockingQueue()
         self.collectors.append(asyncio.create_task(
             self._combine_results(combine_queue)))
@@ -39,17 +39,17 @@ class StreamCollector:
         await combine_monitor_task
         async for sse_res in self._stream_combine_results(combine_queue):
             yield sse_res
-        logger.debug(f"sse res: data: [DONE]\n\n")
+        logger.debug("sse res: data: [DONE]\n\n")
         yield "data: [DONE]\n\n"
-        logger.debug(f"collectors gather wait")
+        logger.debug("collectors gather wait")
         await asyncio.gather(*self.collectors)
-        logger.debug(f"collectors gather done")
+        logger.debug("collectors gather done")
 
     async def _collect_single_chunk(self, index):
-        logger.debug(f"q-{index}, collect init")
+        logger.debug("q-%s, collect init", index)
         start = self.starts[index]
         await start.get()
-        logger.debug(f"q-{index}, collect start")
+        logger.debug("q-%s, collect start", index)
         queue = self.queues[index]
         done = self.dones[index]
         try:
@@ -57,11 +57,11 @@ class StreamCollector:
                 async for res in self._process_chunk_response(resp, index):
                     await queue.put(res)
                     await asyncio.sleep(0)
-            logger.debug(f"q-{index}, done")
+            logger.debug("q-%s, done", index)
             await queue.put(None)
             await done.put(None)
         except Exception as e:
-            logger.error(f"Error in _collect_single_chunk[{index}]: {e}")
+            logger.error("Error in _collect_single_chunk[%s]: %s", index, e)
             await queue.put(None)
             await done.put(None)
 
@@ -84,21 +84,21 @@ class StreamCollector:
                         if "choices" in parsed and len(parsed["choices"]) > 0:
                             delta = parsed["choices"][0].get("delta", {})
                             content = delta.get("content", "")
-                            filtered_content = re.sub(r'<\/think>', '', content)
+                            filtered_content = re.sub(r'</?think>', '', content)
                             self.buffers[index] += filtered_content
                             parsed["choices"][0]["delta"]["content"] = filtered_content
                             yield parsed
                         else:
-                            logger.debug(f"No valid choices in chunk [{index}]: {parsed}")
+                            logger.debug("No valid choices in chunk [%s]: %s", index, parsed)
                     except json.JSONDecodeError as e:
-                        logger.warning(f"Failed to decode JSON from chunk [{index}]: {line}. Error: {e}")
+                        logger.warning("Failed to decode JSON from chunk [%s]: %s. Error: %s", index, line, e)
 
     def _calculate_slow_delay(self):
         elapsed_time = time.time() - self.start_time
         if elapsed_time < 1:
             return 0.0
         queue_count = sum(queue.qsize() for queue in self.queues)
-        logger.debug(f"Queue count: {queue_count}, Elapsed time: {elapsed_time:.2f}s")
+        logger.debug("Queue count: %s, Elapsed time: %.2fs", queue_count, elapsed_time)
         if queue_count <= 5 and elapsed_time >= 3:
             logger.debug("Apply delay of 0.5s: low queue count (<5) and sufficient elapsed time (>3s)")
             return 0.5
@@ -112,27 +112,27 @@ class StreamCollector:
         return 0.0
 
     async def _combine_results(self, queue):
-        logger.debug(f"combine, start")
+        logger.debug("combine, start")
         await asyncio.sleep(5)
         async with self.combine_request("<|preparation|>") as _warmup_resp:
             pass  # KV cache warmup, discard response
-        logger.debug(f"waiting for first-level response to complete")
+        logger.debug("waiting for first-level response to complete")
         for index, done in enumerate(self.dones):
             await done.get()
-            logger.debug(f"combine, q-{index} is done")
+            logger.debug("combine, q-%s is done", index)
         logger.debug(
             "first-level response completed, starting second-level reasoning, "
             "first-level response %s", self.buffers,
         )
         async with self.combine_request("\n\n".join(self.buffers)) as resp:
-            logger.debug(f"combine, resp {resp}")
+            logger.debug("combine, resp %s", resp)
             try:
                 async for res in self._process_combine_response(resp):
                     await queue.put(res)
                     await asyncio.sleep(0)
                 await queue.put(None)
             except Exception as e:
-                logger.error(f"Error in _combine_results: {e}", exc_info=True)
+                logger.error("Error in _combine_results: %s", e, exc_info=True)
                 await queue.put(None)
 
     async def _process_combine_response(self, resp):
@@ -154,13 +154,13 @@ class StreamCollector:
                         if "choices" in parsed and len(parsed["choices"]) > 0:
                             delta = parsed["choices"][0].get("delta", {})
                             content = delta.get("content", "")
-                            filtered_content = re.sub(r'<think>', '', content)
+                            filtered_content = re.sub(r'</?think>', '', content)
                             parsed["choices"][0]["delta"]["content"] = filtered_content
                             yield parsed
                         else:
-                            logger.debug(f"No valid choices in combine response: {parsed}")
+                            logger.debug("No valid choices in combine response: %s", parsed)
                     except json.JSONDecodeError as e:
-                        logger.warning(f"Failed to decode JSON from combine response: {line}. Error: {e}")
+                        logger.warning("Failed to decode JSON from combine response: %s. Error: %s", line, e)
 
     async def _monitor_combine_start(self, combine_queue):
         res = await combine_queue.get()
@@ -172,7 +172,7 @@ class StreamCollector:
 
     async def _stream_chunk_results(self):
         for index, queue in enumerate(self.queues):
-            logger.debug(f"try to get res from q-{index}")
+            logger.debug("try to get res from q-%s", index)
             while True:
                 res = await queue.get()
                 if res is None:
@@ -200,11 +200,11 @@ class StreamCollector:
             self.queues.append(queue)
             start = NonBlockingQueue()
             self.starts.append(start)
-            logger.debug(f"kick off chunk {i}")
+            logger.debug("kick off chunk %s", i)
             await start.put(None)
             done = NonBlockingQueue()
             self.dones.append(done)
             self.buffers.append("")
-            logger.debug(f"create task for chunk {i}")
+            logger.debug("create task for chunk %s", i)
             self.collectors.append(asyncio.create_task(
                 self._collect_single_chunk(i)))

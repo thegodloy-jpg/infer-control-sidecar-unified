@@ -95,11 +95,12 @@ docker run --runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=0,1 ...
 **解决方案**: 使用正确的环境变量方式：
 ```bash
 docker run \
-  -e NODE_RANK=0 \
+  -e RANK_IP=192.168.1.10 \
+  -e MASTER_IP=192.168.1.10 \
   -e NODE_IPS="192.168.1.10,192.168.1.11" \
   ... bash /app/wings_start.sh --engine vllm ...
 ```
-wings-control 内部 `_determine_role()` 会读取 `NODE_RANK` 和 `NODE_IPS` 环境变量自动判断 master/worker 角色。
+wings-control 内部 `_determine_role()` 通过 RANK_IP vs MASTER_IP 比较自动判断 master/worker 角色（与老版本 wings 一致）。
 
 **修复文件**: `nv-report-track-f-distributed.md` 全部分布式启动命令
 **验证**: ✅ master 和 worker 正确识别角色，Ray 集群编排成功
@@ -311,7 +312,7 @@ await gate.release()   # ← 在发送后端请求之前就释放了闸门
 | F-1 | 单机 TP=2 启动 (`--tensor-parallel-size 2`) | ✅ |
 | F-2 | 单机 TP=2 推理 (直连+代理+流式) | ✅ |
 | F-3 | TP 参数边界 (device_count=1→TP=1, =4→TP=4) | ✅ |
-| F-5 | 角色自动检测 (3 级: NODE_RANK→字符串比较→DNS) | ✅ |
+| F-5 | 角色自动检测 (2 级: RANK_IP字符串比较→DNS解析) | ✅ |
 | F-6 | 双机 Ray 编排 (ray start --head/--address) | ✅ 编排正确 |
 | F-7 | 资源清理 | ✅ |
 
@@ -334,12 +335,13 @@ gate.acquire() → gate.release() → 发送后端请求
 - **方案 B**: httpx 连接池限制 — 降低 `HTTPX_MAX_CONNECTIONS` 实现自然排队
 - **方案 C**: 后端指标反馈 — 读取 vLLM `/metrics` 的 running/waiting 指标做准入决策
 
-### 5.2 角色自动检测三级策略 (F-5)
+### 5.2 角色自动检测两级策略 (F-5)
 
-wings-control 分布式角色检测采用三级回退:
-1. **Level 1**: 环境变量 `NODE_RANK` — 显式指定
-2. **Level 2**: 字符串比较 `NODE_IPS[0]` vs 本机 IP — 首节点为 master
-3. **Level 3**: DNS 解析 master 域名 — 适配 K8s StatefulSet
+wings-control 分布式角色检测采用两级回退（与老版本 wings 保持一致）:
+1. **Level 1**: 字符串比较 `RANK_IP` vs `MASTER_IP` — 直接比较（兼容老版本 shell 方式）
+2. **Level 2**: DNS 解析 master 域名 — 适配 K8s StatefulSet
+
+> 注: 历史版本曾使用 `NODE_RANK` 环境变量作为最高优先级，已移除以与老版本保持一致。
 
 ### 5.3 配置合并四层优先级 (D-6)
 

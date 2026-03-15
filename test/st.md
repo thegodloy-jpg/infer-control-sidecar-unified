@@ -1,4 +1,4 @@
-P-C-4/P-A-3	engines/vllm_adapter.py	移除 3 处 CANN env 重复 source（单机/分布式/PD），仅保留 _build_base_env_commands() ，这个的处理方案不对，应该保证wings-control完成所有的基本的环境变量以及命令，source的功能凭借，不依赖于其他的容器的骄傲本，理论上应该参考F:\zhanghui\wings-k83-260312\wings\wings\config\set_vllm_ascend_env.sh这种逻辑，我们也在F:\zhanghui\wings-k83-260312\infer-control-sidecar-unified\wings-control\config\defaults创建对应的文件，然后在wings-control中不同的逻辑激活不同的环境变量，但是除了基本的source之外，引擎段的是不需要source的，因为engine端直接可以使用不许source
+P-C-4/P-A-3	engines/vllm_adapter.py	移除 3 处 CANN env 重复 source（单机/分布式/PD），仅保留 _build_base_env_commands() ，这个的处理方案不对，应该保证wings-control完成所有的基本的环境变量以及命令，source的功能凭借，不依赖于其他的容器的骄傲本，理论上应该参考F:\zhanghui\wings-k83-260312\wings\wings\config\set_vllm_ascend_env.sh这种逻辑，我们也在F:\zhanghui\wings-k83-260312\infer-control-sidecar-unified\wings-control\config\defaults创建对应的文件，然后在wings-control中不同的逻辑激活不同的环境变量，但是除了基本的source之外，引擎段的是不需要source的，因为engine端直接可以使用不许source。
 
 # 昇腾 NPU 验证方案
 
@@ -466,7 +466,6 @@ curl "http://localhost:19000/health?minimal=true"
 ```bash
 # Master 节点（.110）
 export DISTRIBUTED=true
-export NODE_RANK=0
 export NODE_IPS="7.6.52.110,7.6.52.170"
 export MASTER_IP=7.6.52.110
 export RANK_IP=7.6.52.110
@@ -483,15 +482,14 @@ bash /app/wings_start.sh \
 ```bash
 # Worker 节点（.170，由 Master 自动分发，无需手动启动）
 export DISTRIBUTED=true
-export NODE_RANK=1
 export NODE_IPS="7.6.52.110,7.6.52.170"
 export MASTER_IP=7.6.52.110
 export RANK_IP=7.6.52.170
 ```
 
 **验证点：**
-- [ ] Master 角色正确判定（NODE_RANK=0 或 local_ip==MASTER_IP）
-- [ ] Worker 角色正确判定（NODE_RANK=1）
+- [ ] Master 角色正确判定（RANK_IP == MASTER_IP）
+- [ ] Worker 角色正确判定（RANK_IP != MASTER_IP）
 - [ ] Master API 启动（MASTER_PORT 端口）
 - [ ] Worker 注册到 Master（/api/nodes/register）
 - [ ] Worker 注册等待超时重试（默认 300s，最多 2 次重试）
@@ -505,7 +503,6 @@ export RANK_IP=7.6.52.170
 ```bash
 # Master 节点
 export DISTRIBUTED=true
-export NODE_RANK=0
 export NODE_IPS="7.6.52.110,7.6.52.170"
 export HCCL_DEVICE_IPS="ip0,ip1,ip2,ip3,ip4,ip5,ip6,ip7;ip8,ip9,ip10,ip11,ip12,ip13,ip14,ip15"
 
@@ -531,9 +528,10 @@ bash /app/wings_start.sh \
 ### 7.3 角色判定逻辑
 ```bash
 # 测试不同角色判定路径
-# 路径1：NODE_RANK 优先
+# 路径1：RANK_IP 与 MASTER_IP 字符串直接比较（与老版本 wings 一致）
 export DISTRIBUTED=true
-export NODE_RANK=0   # → master
+export RANK_IP=7.6.52.110
+export MASTER_IP=7.6.52.110   # RANK_IP == MASTER_IP → master
 
 # 路径2：IP 匹配
 export DISTRIBUTED=true
@@ -548,10 +546,10 @@ export MASTER_IP=hostname_of_master
 
 **验证点：**
 - [ ] DISTRIBUTED 支持多种 true 写法（"1"/"true"/"yes"/"on"）
-- [ ] NODE_RANK 优先于 IP 比较
+- [ ] RANK_IP vs MASTER_IP 字符串比较优先（与老版本一致）
 - [ ] DNS 名称自动解析为 IP 比较
 - [ ] MASTER_IP 未设置 → 回退单机模式
-- [ ] hostNetwork 模式下共享 IP 时，NODE_RANK 正确区分角色
+- [ ] 生产环境由 MaaS 为每个 Pod 分配唯一 RANK_IP，RANK_IP vs MASTER_IP 可正确区分角色
 
 ### 7.4 心跳与监控
 **验证点：**

@@ -408,12 +408,12 @@ def _set_soft_fp8(params, ctx, model_info):
 
     # 检查是否启用了 FP4 开关，如果是则给出警告但继续使用 FP8 配置
     if get_soft_fp4_env():
-        logger.warning(f"Model {model_name} is detected as FP8 model, but Soft FP4 switch is enabled. "
-                       "Automatically correcting to use Soft FP8 configuration.")
+        logger.warning("Model %s is detected as FP8 model, but Soft FP4 switch is enabled. "
+                       "Automatically correcting to use Soft FP8 configuration.", model_name)
 
     # 检查是否启用了 FP8 开关，如果没有启用则给出提示但继续配置
     if not get_soft_fp8_env():
-        logger.info(f"Model {model_name} is detected as FP8 model, automatically enabling Soft FP8 configuration")
+        logger.info("Model %s is detected as FP8 model, automatically enabling Soft FP8 configuration", model_name)
 
     if ctx['device'] != "ascend":
         logger.warning("Soft FP8 is only supported on Ascend devices")
@@ -461,12 +461,12 @@ def _set_soft_fp4(params, ctx, model_info):
 
     # 检查是否启用了 FP8 开关，如果是则给出警告但继续使用 FP4 配置
     if get_soft_fp8_env():
-        logger.warning(f"Model {model_name} is detected as FP4 model, but Soft FP8 switch is enabled. "
-                       "Automatically correcting to use Soft FP4 configuration.")
+        logger.warning("Model %s is detected as FP4 model, but Soft FP8 switch is enabled. "
+                       "Automatically correcting to use Soft FP4 configuration.", model_name)
 
     # 检查是否启用了 FP4 开关，如果没有启用则给出提示但继续配置
     if not get_soft_fp4_env():
-        logger.info(f"Model {model_name} is detected as FP4 model, automatically enabling Soft FP4 configuration")
+        logger.info("Model %s is detected as FP4 model, automatically enabling Soft FP4 configuration", model_name)
 
     if ctx['device'] != "ascend":
         logger.warning("Soft FP4 is only supported on Ascend (NPU) devices and will be ignored on current device")

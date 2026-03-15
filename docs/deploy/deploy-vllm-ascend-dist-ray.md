@@ -163,7 +163,7 @@ ssh 7.6.52.170 docker exec k3s-verify-agent-ascend-zhanghui ctr -n k8s.io images
 
 ### 4.1 Sidecar 工作流
 
-1. **wings-control 容器**先启动，根据环境变量（`NODE_RANK`、`NNODES`、`ENGINE` 等）调用 `vllm_adapter.py` 的 `build_start_script()` 生成 `/shared-volume/start_command.sh`
+1. **wings-control 容器**先启动，根据环境变量（`RANK_IP`、`MASTER_IP`、`NNODES`、`ENGINE` 等）判定角色并调用 `vllm_adapter.py` 的 `build_start_script()` 生成 `/shared-volume/start_command.sh`
 2. **engine 容器**轮询 `/shared-volume/start_command.sh`，发现后执行
 3. rank-0 的 engine 启动 Ray Head + vLLM serve；rank-1 的 engine 启动 Ray Worker（`--block`）
 4. rank-0 的 wings-control 启动反向代理（18100→17000）和健康检查（19100）
@@ -383,7 +383,7 @@ curl -s http://7.6.52.110:18100/v1/chat/completions \
 | `WINGS_DEVICE` | `ascend` | 硬件类型 |
 | `DISTRIBUTED` | `true` | 启用分布式模式 |
 | `NNODES` | `2` | 节点总数 |
-| `NODE_RANK` | Downward API `pod-index` | 当前节点序号 |
+| `NODE_RANK` | Downward API `pod-index` | K8s YAML IP 交换用，Python 代码不再读取 |
 | `HEAD_NODE_ADDR` | `7.6.52.110` | Head 固定 IP |
 | `NODE_IPS` | `7.6.52.110,7.6.52.170` | 所有节点 IP |
 | `ENGINE` | `vllm_ascend` | 引擎类型 |
