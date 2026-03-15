@@ -53,7 +53,9 @@ _DEVICE_TO_DEVICETYPE = {
 }
 
 # ── JSON 硬件信息缓存 ────────────────────────────────────────────────
-_hardware_cache: Dict[str, Any] = {}_hardware_cache_lock = threading.Lock()
+_hardware_cache: Dict[str, Any] = {}
+_hardware_cache_lock = threading.Lock()
+
 
 def _get_hardware_info() -> Dict[str, Any]:
     """从 JSON 文件加载硬件信息（带缓存）。
@@ -122,6 +124,7 @@ def _get_device_type_from_hw() -> DeviceType:
 
 # ── 设备可用性检查 ────────────────────────────────────────────────────
 
+
 def is_npu_available() -> bool:
     """检查昇腾 NPU (Ascend) 是否可用。
 
@@ -168,6 +171,7 @@ def is_device_available(device: str) -> bool:
 
 
 # ── 设备信息查询 ──────────────────────────────────────────────────────
+
 
 def get_available_device_env_name():
     """获取当前可用设备对应的可见设备环境变量名。
@@ -263,6 +267,7 @@ def is_hf_accelerate_supported(device: str) -> bool:
 
 # ── GPU 型号判断 ──────────────────────────────────────────────────────
 
+
 def is_h20_gpu(total_memory: float, tolerance_gb: float = 10.0) -> str:
     """根据显存大小判断是否为 H20 系列 GPU。
 
@@ -281,6 +286,7 @@ def is_h20_gpu(total_memory: float, tolerance_gb: float = 10.0) -> str:
 
 
 # ── PCIe 设备检测（lspci，不依赖 torch） ─────────────────────────────────────
+
 
 def check_pcie_cards(device_id="d802", subsystem_id="4000"):
     """检查指定的device_id,subsystem_id的pcie设备是否存在

@@ -191,6 +191,7 @@ def _phase_from_code(code: int) -> str:
 
 #  sglang  /  /
 
+
 def _sglang_weight(http_code: int, err_kind: str) -> float:
     """
 
@@ -235,6 +236,7 @@ def _sglang_pid_grace(context: SglangFailureContext, h: dict) -> bool:
 
 
 #
+
 
 def init_health_state() -> dict:
     """初始化健康状态字典。
@@ -496,6 +498,7 @@ def map_http_code_from_state(h: dict) -> int:
 
 #
 
+
 def _jittered_sleep_base(h: dict) -> float:
     """计算下一次轮询间隔（秒），并引入少量抖动避免多 worker 探测齐步走。"""
     base_ms = PRE_READY_POLL_MS if not h["ever_ready"] else POLL_INTERVAL_MS
@@ -526,6 +529,7 @@ async def health_monitor_loop(app) -> None:
 
 
 #   API
+
 
 def setup_health_monitor(app) -> None:
     """在 FastAPI startup 阶段初始化健康状态并启动后台轮询任务。"""

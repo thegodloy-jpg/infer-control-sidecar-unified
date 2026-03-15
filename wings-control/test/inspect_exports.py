@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """Inspect actual exports of all modules."""
-import sys, os
+import importlib
+import logging
+import sys
+import os
+
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+logger = logging.getLogger(__name__)
 
 _WINGS_DIR = '/opt/wings-control'
 if _WINGS_DIR not in sys.path:
@@ -42,7 +48,7 @@ modules_to_check = [
 
 for mod_name in modules_to_check:
     try:
-        mod = __import__(mod_name, fromlist=['_'])
+        mod = importlib.import_module(mod_name)
         exports = [x for x in dir(mod) if not x.startswith('_')]
         # Show classes, functions, and important vars
         classes = []
@@ -56,14 +62,14 @@ for mod_name in modules_to_check:
                 funcs.append(name)
             else:
                 others.append(name)
-        print(f"\n=== {mod_name} ===")
+        logger.info("\n=== %s ===", mod_name)
         if classes:
-            print(f"  Classes: {', '.join(classes)}")
+            logger.info("  Classes: %s", ', '.join(classes))
         if funcs:
-            print(f"  Functions: {', '.join(funcs)}")
+            logger.info("  Functions: %s", ', '.join(funcs))
         if others and len(others) <= 20:
-            print(f"  Other: {', '.join(others)}")
+            logger.info("  Other: %s", ', '.join(others))
         elif others:
-            print(f"  Other: ({len(others)} items)")
+            logger.info("  Other: (%s items)", len(others))
     except Exception as e:
-        print(f"\n=== {mod_name} === ERROR: {e}")
+        logger.error("\n=== %s === ERROR: %s", mod_name, e)

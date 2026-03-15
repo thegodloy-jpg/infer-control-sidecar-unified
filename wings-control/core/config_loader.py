@@ -1499,6 +1499,7 @@ def _merge_final_config(engine_config: Dict[str, Any],
 
     return cmd_known_params
 
+
 def load_and_merge_configs(
     hardware_env: Dict[str, Any],
     known_args: argparse.Namespace

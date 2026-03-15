@@ -62,41 +62,43 @@ fi
 
 # ===== 帮助信息 =====
 usage() {
-    echo "Usage: $0 [OPTIONS]"
-    echo "Options:"
-    echo "  --host <value>            Set the host address"
-    echo "  --port <value>            Set the port number"
-    echo "  --model-name <value>      Set the model name"
-    echo "  --trust-remote-code       Enable Trust remote code"
-    echo "  --dtype <value>           Set the data type"
-    echo "  --kv-cache-dtype <value>  Set the key-value cache data type"
-    echo "  --quantization <value>    Set the quantization"
-    echo "  --quantization-param-path <value> Set the quantization parameter path"
-    echo "  --gpu-memory-utilization <value> Set the GPU memory utilization"
-    echo "  --enable-chunked-prefill  Enable chunked prefill"
-    echo "  --block-size <value>       Set the block size"
-    echo "  --max-num-seqs <value>     Set the maximum number of sequences"
-    echo "  --seed <value>             Set the seed"
-    echo "  --enable-expert-parallel   Enable EP MOE"
-    echo "  --max-num-batched-tokens <value>   Set max batch tokens for prefill"
-    echo "  --enable-prefix-caching   Enable prefix caching"
-    echo "  --model-path <value>      Set the model path"
-    echo "  --engine <value>          Set the engine type"
-    echo "  --input-length <value>    Set the max input length"
-    echo "  --output-length <value>   Set the max output length"
-    echo "  --distributed             Enable distributed mode"
-    echo "  --config-file <value>     Specify a config file"
-    echo "  --gpu-usage-mode <value>  Specify gpu usage mode"
-    echo "  --device-count <value>    device count"
-    echo "  --model-type <value>      model type, should be llm or embedding or rerank or mmum or mmgm"
-    echo "  --save-path <value>       Top-level output dir for generated outputs (mmgm/wings)"
-    echo "  --enable-speculative-decode     Enable speculative decoding feature"
-    echo "  --speculative-decode-model-path <value>  Path to auxiliary model for speculative decoding"
-    echo "  --enable-rag-acc            Enable RAG acceleration feature"
-    echo "  --enable-auto-tool-choice   Enable function call feature"
-    echo ""
-    echo "Example:"
-    echo "  $0 --model-name my_model --model-path my_model_path --input-length 4096 --output-length 1024"
+    cat >&2 <<'EOF'
+Usage: $0 [OPTIONS]
+Options:
+  --host <value>            Set the host address
+  --port <value>            Set the port number
+  --model-name <value>      Set the model name
+  --trust-remote-code       Enable Trust remote code
+  --dtype <value>           Set the data type
+  --kv-cache-dtype <value>  Set the key-value cache data type
+  --quantization <value>    Set the quantization
+  --quantization-param-path <value> Set the quantization parameter path
+  --gpu-memory-utilization <value> Set the GPU memory utilization
+  --enable-chunked-prefill  Enable chunked prefill
+  --block-size <value>       Set the block size
+  --max-num-seqs <value>     Set the maximum number of sequences
+  --seed <value>             Set the seed
+  --enable-expert-parallel   Enable EP MOE
+  --max-num-batched-tokens <value>   Set max batch tokens for prefill
+  --enable-prefix-caching   Enable prefix caching
+  --model-path <value>      Set the model path
+  --engine <value>          Set the engine type
+  --input-length <value>    Set the max input length
+  --output-length <value>   Set the max output length
+  --distributed             Enable distributed mode
+  --config-file <value>     Specify a config file
+  --gpu-usage-mode <value>  Specify gpu usage mode
+  --device-count <value>    device count
+  --model-type <value>      model type, should be llm or embedding or rerank or mmum or mmgm
+  --save-path <value>       Top-level output dir for generated outputs (mmgm/wings)
+  --enable-speculative-decode     Enable speculative decoding feature
+  --speculative-decode-model-path <value>  Path to auxiliary model for speculative decoding
+  --enable-rag-acc            Enable RAG acceleration feature
+  --enable-auto-tool-choice   Enable function call feature
+
+Example:
+  $0 --model-name my_model --model-path my_model_path --input-length 4096 --output-length 1024
+EOF
     exit 1
 }
 

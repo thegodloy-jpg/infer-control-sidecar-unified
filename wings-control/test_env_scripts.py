@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Quick test: verify env script handling after NV script removal."""
-import sys, os
+import sys
+import os
 
 _WINGS_DIR = '/opt/wings-control'
 if _WINGS_DIR not in sys.path:

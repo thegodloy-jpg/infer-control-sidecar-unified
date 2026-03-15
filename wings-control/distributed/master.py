@@ -58,6 +58,7 @@ app = FastAPI(title="Wings Distributed Inference Master Node")
 # Pydantic request models
 # ---------------------------------------------------------------------------
 
+
 class NodeInfo(BaseModel):
     node_id: str
     ip: str
@@ -288,6 +289,7 @@ async def receive_heartbeat(request: HeartbeatRequest):
 # ---------------------------------------------------------------------------
 # Startup
 # ---------------------------------------------------------------------------
+
 
 def start_master():
     """启动主节点服务。"""

@@ -54,6 +54,7 @@ app = FastAPI(title="Wings Distributed Inference Worker Node")
 # Pydantic request models
 # ---------------------------------------------------------------------------
 
+
 class HeartbeatRequest(BaseModel):
     node_id: str
     workload: float
@@ -74,6 +75,7 @@ class EngineStartRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # Worker configuration
 # ---------------------------------------------------------------------------
+
 
 class WorkerConfig:
     """Worker 节点配置。
@@ -203,6 +205,7 @@ async def node_info():
 # Master registration & heartbeat
 # ---------------------------------------------------------------------------
 
+
 def register_with_master(max_retries: int = 30, retry_interval: float = 5.0):
     """向 Master 注册本节点，带重试机制。
 
@@ -266,6 +269,7 @@ def send_heartbeat():
 # ---------------------------------------------------------------------------
 # Worker lifecycle
 # ---------------------------------------------------------------------------
+
 
 def is_port_available(port: int) -> bool:
     """检查端口是否可用。"""

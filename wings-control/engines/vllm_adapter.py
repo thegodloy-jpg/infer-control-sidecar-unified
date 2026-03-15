@@ -636,6 +636,7 @@ def _build_vllm_cmd_parts(params: Dict[str, Any]) -> str:
 
 # ── 推测解码 (Speculative Decoding) ──────────────────────────────────────
 
+
 def _handle_draft_model_case(params: Dict[str, Any], config: List[str]) -> None:
     """处理有草稿模型的推测解码配置"""
     draft_path = params.get("speculative_decode_model_path", "")
@@ -729,6 +730,7 @@ def _build_speculative_cmd(params: Dict[str, Any], engine: str) -> str:
 
 
 # ── Sparse KV ────────────────────────────────────────────────────────────
+
 
 def _build_sparse_config(params: Dict[str, Any], config: List[str]) -> str:
     """构建 sparse-config 参数"""

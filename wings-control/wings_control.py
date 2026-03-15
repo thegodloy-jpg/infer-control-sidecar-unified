@@ -202,8 +202,8 @@ def _restart_if_needed(proc: ManagedProc) -> None:
     - 连续崩溃时指数退避：等待 min(2^crash_count, 60) 秒后再重启
     - 进程稳定运行超过 30 秒后退出，崩溃计数器重置
     """
-    CRASH_THRESHOLD_SEC = 30  # 小于此时间视为崩溃
-    MAX_BACKOFF_SEC = 60      # 最大退避时间
+    crash_threshold_sec = 30  # 小于此时间视为崩溃
+    max_backoff_sec = 60      # 最大退避时间
 
     if not proc.proc:
         # 进程从未启动或已标记为待重启
@@ -225,10 +225,10 @@ def _restart_if_needed(proc: ManagedProc) -> None:
     # 清理已退出进程句柄，下轮将通过 "not proc.proc" 分支重启
     proc.proc = None
 
-    if uptime < CRASH_THRESHOLD_SEC:
+    if uptime < crash_threshold_sec:
         # 短时间内退出视为崩溃
         proc.crash_count += 1
-        backoff = min(2 ** proc.crash_count, MAX_BACKOFF_SEC)
+        backoff = min(2 ** proc.crash_count, max_backoff_sec)
         proc.backoff_until = time.time() + backoff
         logger.warning(
             "%s 以退出码 %s 退出（运行 %0.1fs），"
@@ -320,6 +320,7 @@ def _write_start_command(script_text: str) -> str:
 # ---------------------------------------------------------------------------
 # 分布式模式辅助函数
 # ---------------------------------------------------------------------------
+
 
 def _determine_role() -> str:
     """判断当前 Pod 在分布式集群中的角色。
@@ -591,7 +592,8 @@ def _run_master_mode(
         head_node_addr=local_ip,
     )
     launcher_plan = build_launcher_plan(master_args, port_plan)
-    _write_start_command(launcher_plan.command)
+    script_path = _write_start_command(launcher_plan.command)
+    logger.info("master start command written to %s", script_path)
 
     # ---- 2. 后台启动 Master FastAPI ----
     dist_config = _load_distributed_config()
@@ -737,6 +739,7 @@ def _run_worker_mode(
 # ---------------------------------------------------------------------------
 # 主入口
 # ---------------------------------------------------------------------------
+
 
 def run(argv: Sequence[str] | None = None) -> int:
     """launcher 主流程。
