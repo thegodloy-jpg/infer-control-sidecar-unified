@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Test C-8: Noise filter."""
 import sys
-sys.path.insert(0, '/app')
+sys.path.insert(0, '/opt/wings-control')
 
 from utils.noise_filter import install_noise_filters
 install_noise_filters()

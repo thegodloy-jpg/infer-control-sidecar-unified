@@ -335,8 +335,8 @@ APP_ARGS=("--model-name" "$MODEL_NAME" "--model-path" "$MODEL_PATH")
 
 
 # ===== 进入工作目录 =====
-# B 项目的工作目录在 /app（Dockerfile WORKDIR）
-cd "${APP_WORKDIR:-/app}" || exit 1
+# B 项目的工作目录在 /opt/wings-control（Dockerfile WORKDIR）
+cd "${APP_WORKDIR:-/opt/wings-control}" || exit 1
 
 # 确保保存目录存在
 if [ -n "${SAVE_PATH:-}" ]; then
@@ -348,7 +348,7 @@ fi
 mkdir -p "${SHARED_VOLUME_PATH:-/shared-volume}" 2>/dev/null || true
 
 # 设置 PYTHONPATH
-export PYTHONPATH="${APP_WORKDIR:-/app}:${PYTHONPATH:-}"
+export PYTHONPATH="${APP_WORKDIR:-/opt/wings-control}:${PYTHONPATH:-}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 
 

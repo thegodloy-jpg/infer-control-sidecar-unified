@@ -124,7 +124,7 @@ spec:
 
         # ---- 启动方式 ----
         # 方式 A (默认): 不设置 command/args，走 Dockerfile ENTRYPOINT:
-        #   bash /app/wings_start.sh --engine vllm --model-name xxx ...
+        #   bash /opt/wings-control/wings_start.sh --engine vllm --model-name xxx ...
         #   wings_start.sh 解析 CLI → 设置环境变量 → exec python -m app.main
         #
         # 方式 B (定制): 覆盖 command/args，直接调用 Python:
