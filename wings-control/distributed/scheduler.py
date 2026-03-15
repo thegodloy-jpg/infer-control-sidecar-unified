@@ -111,24 +111,25 @@ class TaskScheduler:
             return None
         return self.monitor.get_active_nodes().get(node_id)
 
-    # ── private methods ──────────────────────────────────────────────────
-
-    @staticmethod
-    def _least_load(nodes: Dict) -> str:
-        """最少负载策略：选择负载最低的节点。"""
-        return min(
-            nodes.items(),
-            key=lambda x: x[1]["workload"]
-            if isinstance(x[1], dict)
-            else x[1].workload,
-        )[0]
-
     def _round_robin(self, nodes: Dict) -> str:
         """轮询策略：按顺序依次选择节点。"""
         keys = list(nodes.keys())
         selected = keys[self._rr_index % len(keys)]
         self._rr_index += 1
         return selected
+
+    # ── private methods ──────────────────────────────────────────────────
+
+    @staticmethod
+    def _node_workload(item: tuple) -> float:
+        """提取节点负载值，兼容 dict 和对象两种格式。"""
+        _, value = item
+        return value["workload"] if isinstance(value, dict) else value.workload
+
+    @staticmethod
+    def _least_load(nodes: Dict) -> str:
+        """最少负载策略：选择负载最低的节点。"""
+        return min(nodes.items(), key=TaskScheduler._node_workload)[0]
 
     def _select_node(self) -> Optional[str]:
         """根据策略选择节点。"""

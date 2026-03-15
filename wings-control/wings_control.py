@@ -772,7 +772,8 @@ def run(argv: Sequence[str] | None = None) -> int:
 
     # ---- standalone 模式（原有逻辑不变） ----
     launcher_plan = build_launcher_plan(launch_args, port_plan)
-    _write_start_command(launcher_plan.command)
+    start_cmd_path = _write_start_command(launcher_plan.command)
+    logger.debug("start command written to: %s", start_cmd_path)
 
     processes = _build_processes(port_plan)
     # 分布式场景下只有 rank0 暴露 proxy，其余 rank 保留 health 即可。

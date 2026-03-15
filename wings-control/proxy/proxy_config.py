@@ -32,8 +32,8 @@ def parse_args():
     parser.add_argument("--backend", default=os.getenv("BACKEND_URL", "http://127.0.0.1:17000"))
     parser.add_argument("--host", default=os.getenv("HOST", "0.0.0.0"))
     parser.add_argument("--port", type=int, default=int(os.getenv("PORT", "18000")))
-    args, _ = parser.parse_known_args()
-    return args
+    parsed_args, _ = parser.parse_known_args()
+    return parsed_args
 
 
 args = parse_args()

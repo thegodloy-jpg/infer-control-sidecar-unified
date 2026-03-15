@@ -56,10 +56,10 @@ def _read_pid_from_file() -> Optional[int]:
     """从 PID 文件第一行读取 backend PID。"""
     try:
         with open(BACKEND_PID_FILE, "r", encoding="utf-8") as f:
-            first = f.readline()  #
+            first = f.readline()  # read first line
         if not first:
             return None
-        s = first.lstrip("\ufeff").split("#", 1)[0].strip()  #  BOM
+        s = first.lstrip("\ufeff").split("#", 1)[0].strip()  # strip BOM
         if not s.isdigit():
             return None
         pid = int(s)

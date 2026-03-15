@@ -30,9 +30,6 @@ logger = logging.getLogger(__name__)
 #   1. export WINGS_ENGINE_PATCH_OPTIONS='{...}'
 #   2. python /accel-volume/install.py --features "$WINGS_ENGINE_PATCH_OPTIONS"
 #
-# WINGS_ENGINE_PATCH_OPTIONS 格式为：
-#   {"<engine>": {"version": "<ver>", "features": ["feat1", "feat2"]}}
-#
 # features 列表由以下 5 个高级特性环境变量决定：
 #   ENABLE_SPECULATIVE_DECODE → speculative_decode
 #   ENABLE_SPARSE             → sparse_kv

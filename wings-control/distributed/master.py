@@ -96,6 +96,7 @@ task_scheduler: TaskScheduler = None     # type: ignore[assignment]
 # API endpoints
 # ---------------------------------------------------------------------------
 
+
 @app.post("/api/nodes/register")
 async def register_node(request: RegisterRequest):
     """工作节点注册接口。"""

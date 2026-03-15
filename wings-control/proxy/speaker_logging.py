@@ -255,7 +255,7 @@ def _normalize_children():
     ):
         lg = logging.getLogger(name)
         lg.setLevel(logging.NOTSET)   # logger
-        lg.propagate = True           #  root
+        lg.propagate = True           # 交给 root 统一控制
 
 
 # ==== NEW: /health  ===================================
@@ -470,6 +470,6 @@ def _patch_worker_logging(constants: type = LogConstants) -> None:
     setattr(mod, "configure_worker_logging", configure_worker_logging_wrapped)
 
 
-#  LOG_PATCH_DISABLE=1
+# 默认自动打补丁；如需关闭可设置环境变量 LOG_PATCH_DISABLE=1
 if os.getenv("LOG_PATCH_DISABLE", "").strip().lower() not in ("1", "true", "yes", "y", "on"):
     _patch_worker_logging(LogConstants)

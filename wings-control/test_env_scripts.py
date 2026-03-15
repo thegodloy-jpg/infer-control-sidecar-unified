@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-import logging
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-logger = logging.getLogger(__name__)
-
 """Quick test: verify env script handling after NV script removal."""
-import sys
+import logging
 import os
+import sys
 
 _WINGS_DIR = '/opt/wings-control'
 if _WINGS_DIR not in sys.path:
     sys.path.append(_WINGS_DIR)
+
+from engines.vllm_adapter import _build_base_env_commands  # noqa: E402
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger(__name__)
+
 os.environ.setdefault('ENGINE_TYPE', 'vllm')
 os.environ.setdefault('MODEL_NAME', 'test')
-
-from engines.vllm_adapter import _build_base_env_commands
 
 params = {'model_name': 'test', 'model_path': '/m', 'model_type': 'chat'}
 

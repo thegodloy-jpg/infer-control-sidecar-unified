@@ -1,18 +1,17 @@
-# =============================================================================
-# File: distributed/monitor.py
-# Purpose: 分布式节点健康监控服务
-# Origin:  移植自 wings/distributed/monitor.py，适配 sidecar 包路径
-#
-# 功能概述:
-#   在 Master 节点中运行，线程安全地管理所有 Worker 节点的状态。
-#   - 注册节点: 创建 NodeStatus 记录节点 IP、端口、状态、负载
-#   - 更新心跳: Worker 定期上报心跳，重置丢失计数和更新负载
-#   - 健康检查: 后台线程定期巡检，连续丢失 max_missed_heartbeats 次后移除节点
-#
-# Sidecar 适配:
-#   - 包路径从 wings.distributed → distributed
-#   - 逻辑与 wings 版本完全一致，无其他改动
-# =============================================================================
+"""分布式节点健康监控服务。
+
+移植自 wings/distributed/monitor.py，适配 sidecar 包路径。
+
+功能概述:
+    在 Master 节点中运行，线程安全地管理所有 Worker 节点的状态。
+    - 注册节点: 创建 NodeStatus 记录节点 IP、端口、状态、负载
+    - 更新心跳: Worker 定期上报心跳，重置丢失计数和更新负载
+    - 健康检查: 后台线程定期巡检，连续丢失 max_missed_heartbeats 次后移除节点
+
+Sidecar 适配:
+    - 包路径从 wings.distributed → distributed
+    - 逻辑与 wings 版本完全一致，无其他改动
+"""
 # Copyright (c) xFusion Digital Technologies Co., Ltd. 2025-2025. All rights reserved.
 
 import logging
