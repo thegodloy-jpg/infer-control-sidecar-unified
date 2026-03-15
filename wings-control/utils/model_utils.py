@@ -232,25 +232,25 @@ def is_qwen3_32b_nvfp4(model_path: str) -> bool:
 
         architectures = config.get("architectures", [])
         if not architectures or architectures[0] != "Qwen3ForCausalLM":
-            logger.warning(f"is_qwen3_32b_nvfp4: architectures check failed"
-                           f" - architectures={architectures}, expected=['Qwen3ForCausalLM']")
+            logger.warning("is_qwen3_32b_nvfp4: architectures check failed"
+                           " - architectures=%s, expected=['Qwen3ForCausalLM']", architectures)
             return False
 
         if "quantization_config" in config:
-            logger.warning(f"is_qwen3_32b_nvfp4: quantization_config check failed"
-                           f" - quantization_config exists in config.json")
+            logger.warning("is_qwen3_32b_nvfp4: quantization_config check failed"
+                           " - quantization_config exists in config.json")
             return False
 
         quant_model_desc_path = model_path_obj / "quant_model_description.json"
         if not quant_model_desc_path.exists():
-            logger.warning(f"is_qwen3_32b_nvfp4: quant_model_description.json check failed"
-                           f" - file not found at {quant_model_desc_path}")
+            logger.warning("is_qwen3_32b_nvfp4: quant_model_description.json check failed"
+                           " - file not found at %s", quant_model_desc_path)
             return False
 
         return True
 
     except Exception as e:
-        logger.warning(f"Failed to check if model is Qwen3-32B-NVFP4: {e}")
+        logger.warning("Failed to check if model is Qwen3-32B-NVFP4: %s", e)
         return False
 
 
@@ -274,25 +274,25 @@ def is_deepseek_series_fp8(model_path: str) -> bool:
 
         architectures = config.get("architectures", [])
         if not architectures or architectures[0] != "DeepseekV3ForCausalLM":
-            logger.warning(f"is_deepseek_series_fp8: architectures check failed"
-                           f" - architectures={architectures}, expected=['DeepseekV3ForCausalLM']")
+            logger.warning("is_deepseek_series_fp8: architectures check failed"
+                           " - architectures=%s, expected=['DeepseekV3ForCausalLM']", architectures)
             return False
 
         if "quantization_config" in config:
-            logger.warning(f"is_deepseek_series_fp8: quantization_config check failed"
-                           f" - quantization_config exists in config.json")
+            logger.warning("is_deepseek_series_fp8: quantization_config check failed"
+                           " - quantization_config exists in config.json")
             return False
 
         quant_model_desc_path = model_path_obj / "quant_model_description.json"
         if not quant_model_desc_path.exists():
-            logger.warning(f"is_deepseek_series_fp8: quant_model_description.json check failed"
-                           f" - file not found at {quant_model_desc_path}")
+            logger.warning("is_deepseek_series_fp8: quant_model_description.json check failed"
+                           " - file not found at %s", quant_model_desc_path)
             return False
 
         return True
 
     except Exception as e:
-        logger.warning(f"Failed to check if model is DeepSeek series FP8: {e}")
+        logger.warning("Failed to check if model is DeepSeek series FP8: %s", e)
         return False
 
 
@@ -318,7 +318,7 @@ def is_qwen3_series_fp8(model_path: str, model_name: str) -> bool:
 
         architectures = config.get("architectures", [])
         if not architectures:
-            logger.warning(f"is_qwen3_series_fp8: architectures check failed - architectures is empty")
+            logger.warning("is_qwen3_series_fp8: architectures check failed - architectures is empty")
             return False
 
         is_qwen3 = architectures[0] == "Qwen3ForCausalLM"
@@ -328,18 +328,18 @@ def is_qwen3_series_fp8(model_path: str, model_name: str) -> bool:
             return False
 
         if "quantization_config" in config:
-            logger.warning(f"is_qwen3_series_fp8: quantization_config check failed"
-                           f" - quantization_config exists in config.json")
+            logger.warning("is_qwen3_series_fp8: quantization_config check failed"
+                           " - quantization_config exists in config.json")
             return False
 
         quant_model_desc_path = model_path_obj / "quant_model_description.json"
         if not quant_model_desc_path.exists():
-            logger.warning(f"is_qwen3_series_fp8: quant_model_description.json check failed"
-                           f" - file not found at {quant_model_desc_path}")
+            logger.warning("is_qwen3_series_fp8: quant_model_description.json check failed"
+                           " - file not found at %s", quant_model_desc_path)
             return False
 
         return True
 
     except Exception as e:
-        logger.warning(f"Failed to check if model is Qwen3 series FP8: {e}")
+        logger.warning("Failed to check if model is Qwen3 series FP8: %s", e)
         return False
