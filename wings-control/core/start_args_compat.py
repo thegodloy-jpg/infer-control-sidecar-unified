@@ -1,16 +1,3 @@
-# =============================================================================
-# File: core/start_args_compat.py
-# Purpose: CLI 启动参数兼容层 — 将旧版 wings_start.sh 的参数语义迁移到 Python
-#          launcher 中，使部署脚本、环境变量和历史参数名可继续复用。
-# Architecture:
-#   命令行 / 环境变量  →  build_parser()  →  parse_launch_args()  →  LaunchArgs
-#   LaunchArgs 作为标准化输入传递给 wings_entry.py 的 build_launcher_plan()。
-# Design:
-#   - 每个参数同时支持 CLI 和环境变量两种来源，环境变量作为默认值。
-#   - 布尔参数使用 _add_bool 辅助函数，兼容 "1"/"true"/"yes" 等多种写法。
-#   - LaunchArgs 为不可变 dataclass，便于日志打印和序列化。
-# =============================================================================
-
 """启动参数兼容层。
 
 目标是把旧的 `wings_start.sh` 参数语义迁移到 Python launcher 中，

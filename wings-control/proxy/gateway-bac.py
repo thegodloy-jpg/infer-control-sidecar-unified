@@ -44,9 +44,9 @@ import asyncio
 import inspect
 import random
 import time
+import os
 from typing import Any, AsyncIterator, Dict
 
-import os
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -80,6 +80,7 @@ is_rag_scenario = None
 rag_acc_chat = None
 is_dify_scenario = None
 extract_dify_info = None
+
 
 def _ensure_rag_imports():
     global _rag_imported, is_rag_scenario, rag_acc_chat, is_dify_scenario, extract_dify_info

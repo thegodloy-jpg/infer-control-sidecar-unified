@@ -47,13 +47,10 @@ multi-worker 日志级别控制。
 """
 import logging
 import os
+import re
 import sys
 import zlib
 from typing import List, Optional
-
-# ==== NEW:  ====
-import re  #  /health
-# ==== NEW END ====
 
 
 # =========================

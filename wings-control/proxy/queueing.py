@@ -392,7 +392,6 @@ class QueueGate:
         _jlog("qgate_wakeup", rid=rid, layer=layer, waited=headers_out["X-Queued-Wait"])
         return headers_out
 
-    # async def _try_direct_gate(self, gate, cap, layer, headers_out, rid, t0) -> bool:
     async def _try_direct_gate(
         self,
         gate: asyncio.Semaphore | None,

@@ -77,13 +77,13 @@ class TemplateManager:
                 with open(real_file_path, "r", encoding="utf-8") as f:
                     templates[key] = f.read()
             except PermissionError as e:
-                logging.error(f"Permission denied while reading template file {real_file_path}: {e}")
+                logging.error("Permission denied while reading template file %s: %s", real_file_path, e)
                 raise
             except IOError as e:
-                logging.error(f"IO error while reading template file {real_file_path}: {e}")
+                logging.error("IO error while reading template file %s: %s", real_file_path, e)
                 raise
             except Exception as e:
-                logging.error(f"Unexpected error while reading template file {real_file_path}: {e}")
+                logging.error("Unexpected error while reading template file %s: %s", real_file_path, e)
                 raise
 
         self.templates[lang] = templates

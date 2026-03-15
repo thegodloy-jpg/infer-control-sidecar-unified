@@ -70,7 +70,7 @@ class MonitorService:
         with self.lock:
             if node_id not in self.nodes:
                 self.nodes[node_id] = NodeStatus(node_id, ip, port)
-                logging.info(f"New node registered: {node_id} ({ip}:{port})")
+                logging.info("New node registered: %s (%s:%d)", node_id, ip, port)
 
     def update_heartbeat(self, node_id: str, workload: float = 0.0):
         """更新节点心跳。"""
@@ -81,7 +81,7 @@ class MonitorService:
                 self.nodes[node_id].missed_heartbeats = 0
                 self.nodes[node_id].status = "active"
             else:
-                logging.warning(f"Unknown node heartbeat: {node_id}")
+                logging.warning("Unknown node heartbeat: %s", node_id)
 
     def start(self):
         """启动后台监控线程。"""

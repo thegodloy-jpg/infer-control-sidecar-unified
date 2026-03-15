@@ -1,12 +1,3 @@
-# =============================================================================
-# File: core/port_plan.py
-# Purpose: Sidecar 三层端口规划（backend / proxy / health）。
-# Architecture:
-#   wings_control.py 调用 derive_port_plan() 生成 PortPlan 后，分别传给：
-#   - wings_entry.py: 将 backend_port 写入 engine 启动脚本
-#   - proxy/gateway.py: 在 proxy_port 上对外服务
-#   - proxy/health_service.py: 在 health_port 上提供 K8s 探针
-# =============================================================================
 """端口规划模块。
 
 该项目把端口职责固定为三层：

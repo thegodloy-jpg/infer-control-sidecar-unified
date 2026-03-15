@@ -82,7 +82,7 @@ class TaskScheduler:
     def set_policy(self, policy: str):
         """设置调度策略。"""
         self.policy = policy
-        logging.info(f"Scheduling policy set to: {policy}")
+        logging.info("Scheduling policy set to: %s", policy)
 
     def schedule(self, url: str, data: Dict, retries: int = 0):
         """调度任务到 Worker 节点。
@@ -110,14 +110,14 @@ class TaskScheduler:
                 return self._forward_request(node_id, url, data)
             except Exception as e:
                 logging.warning(
-                    f"Task scheduling failed "
-                    f"(attempt {attempt + 1}/{self.max_retries}): {e}"
+                    "Task scheduling failed "
+                    "(attempt %d/%d): %s", attempt + 1, self.max_retries, e
                 )
                 if attempt + 1 < self.max_retries:
                     time.sleep(self.retry_delay)
                     node_id = self._select_node()
                     if not node_id:
-                        raise Exception("No available worker nodes")
+                        raise Exception("No available worker nodes") from e
                 else:
                     raise
 
