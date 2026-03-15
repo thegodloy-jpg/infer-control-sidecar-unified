@@ -3,7 +3,7 @@ import os
 
 SKIP = {'__pycache__', 'logs', 'outputs', '.git', 'templates', 'benchmark'}
 
-for dp, ds, fs in os.walk('wings-control'):
+for dp, ds, fs in os.walk('wings_control'):
     ds[:] = [d for d in ds if d not in SKIP]
     for f in sorted(fs):
         if not f.endswith('.py'):
