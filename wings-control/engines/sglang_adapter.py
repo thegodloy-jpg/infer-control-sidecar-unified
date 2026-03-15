@@ -83,7 +83,7 @@ def _build_sglang_cmd_parts(params: Dict[str, Any]) -> str:
         if value is None:
             continue
         if isinstance(value, str) and not value.strip():
-            #  --model-path
+            # Skip empty string args to avoid passing blank CLI flags
             continue
 
         arg_name = f"--{arg.replace('_', '-')}"

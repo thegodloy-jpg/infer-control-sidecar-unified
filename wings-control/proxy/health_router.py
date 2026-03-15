@@ -144,7 +144,7 @@ async def _strict_probe_backend_health(client: httpx.AsyncClient) -> Tuple[bool,
         C.logger.debug("backend_health_probe_error: %s", e.__class__.__name__)
         ok, code, err_kind = False, 0, "request_error"
     else:
-        #  err_kind
+        # Successful probe: reset error kind to empty
         err_kind = ""
 
     latency_ms = int((time.perf_counter() - t0) * 1000)
@@ -161,7 +161,7 @@ def _phase_from_code(code: int) -> str:
     }.get(code, "unknown")
 
 
-#  sglang  /  /
+# sglang-specific weight calculation and health helpers
 
 
 def _sglang_weight(http_code: int, err_kind: str) -> float:
@@ -357,7 +357,7 @@ def _advance_state_machine(h: dict, pid_alive: bool, backend_ok: bool) -> None:
         #
         if h["status"] == 1:
             h["consecutive_failures"] += 1
-            #  sglang
+            # Degrade sglang status when fail threshold exceeded
             if (_should_degrade(h)):
                 h["status"] = -1
 
@@ -412,7 +412,7 @@ def _handle_failure_case(h: dict, observation: HealthObservationData) -> None:
         latency_ms=observation.health_result.latency_ms
     )
 
-    #  PID ""
+    # Skip penalty accumulation when within PID grace period
     if not _sglang_pid_grace(context, h):
         w = _sglang_weight(context.http_code, context.err_kind)
         if w > 0.0:
@@ -434,11 +434,11 @@ def map_http_code_from_state(h: dict) -> int:
     if is_ready:
         return 200
 
-    #  201/502
+    # Not yet ready: return 201 (starting) or 502 (startup timeout)
     if not h["ever_ready"]:
         return 201 if elapsed_ms < STARTUP_GRACE_MS else 502
 
-    #  sglang  503  +
+    # sglang: evaluate silence, consecutive timeouts, and fail budget for 503
     if _is_sglang():
         last_ok = h.get("last_success_ts")
         silence_hit = False
@@ -458,7 +458,7 @@ def map_http_code_from_state(h: dict) -> int:
         if silence_hit or consec_to_hit or budget_hit:
             return 503
 
-        #  backend 异常但未达到 503 条件时仍返回 200
+        # Backend is degraded but below 503 threshold: return 200
         return 200
 
     #   sglang

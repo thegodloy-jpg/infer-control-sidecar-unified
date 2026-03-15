@@ -133,7 +133,7 @@ class ModelIdentifier:
         Returns:
             str: 模型架构名称，未找到时返回 'unknown_architecture'
         """
-        #  architectures
+        # Read the 'architectures' list from model config
         architectures = self.config.get("architectures", [])
         if architectures:
             return architectures[0]

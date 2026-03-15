@@ -38,13 +38,13 @@ class LogConstants:
     #
     ENV_PREFIX = "LOG_"
 
-    #  _SPEAKER_DECISION
+    # Environment variable key for caching the speaker decision
     SPEAKER_DECISION_ENV = "_SPEAKER_DECISION"
 
-    #  worker  8
+    # Default expected worker count when actual count is unknown
     DEFAULT_WORKER_COUNT = 8
 
-    #  logger
+    # Logger names to normalize (NOTSET level, propagate to root)
     NORMALIZE_LOGGERS = [
         "uvicorn",
         "uvicorn.error",
@@ -65,7 +65,7 @@ SPEAKER_DECISION_ENV = LogConstants.SPEAKER_DECISION_ENV
 #
 _CONFIGURED_ONCE = False
 
-#  logger
+# Module-level logger for this module
 _lg = logging.getLogger(__name__)
 
 
@@ -346,14 +346,14 @@ def configure_worker_logging(force: bool = False) -> bool:
         #
         return bool(int(os.getenv("_SPEAKER_DECISION", "0")))
 
-    #  worker  INFO 1
+    # Max number of workers that may emit INFO-level logs
     speakers_quota = max(1, _env_int("LOG_INFO_SPEAKERS", 1))
-    # / worker
+    # Total worker count for speaker ratio calculation
     worker_count = _discover_worker_count()
-    #  uvicorn.accessHTTP
+    # Whether to preserve uvicorn.access HTTP request logs
     keep_access = _env_bool("KEEP_ACCESS_LOG", False)
 
-    #  +  WORKER_INDEX
+    # Explicit speaker selection via index list and WORKER_INDEX env
     allowed_indexes_env = os.getenv("LOG_SPEAKER_INDEXES", "").strip()
     allowed_indexes = _parse_csv_ints(allowed_indexes_env) if allowed_indexes_env else []
     worker_index_env = os.getenv("WORKER_INDEX")
@@ -374,13 +374,13 @@ def configure_worker_logging(force: bool = False) -> bool:
     else:
         is_speaker = bool(decision_by_index)
 
-    #  root  handler
+    # Ensure root logger has a StreamHandler attached
     _ensure_root_handler()
 
-    # / uvicorn.access
+    # Configure or suppress uvicorn.access log output
     _quiet_uvicorn_access(keep_access)
 
-    #  logger root  handler
+    # Normalize child loggers to propagate logs to root handler
     _normalize_children()
 
     # ==== NEW:  /health wings  ====
@@ -391,7 +391,7 @@ def configure_worker_logging(force: bool = False) -> bool:
     root = logging.getLogger()
     root.setLevel(logging.INFO if is_speaker else logging.WARNING)
 
-    #  INFO
+    # Log speaker designation when this worker is the INFO speaker
     if is_speaker:
         logging.getLogger("log-center").info(
             "worker(pid=%s) is SPEAKER=1  (quota=%s, workers=%s, idx=%s, allowed=%s)",

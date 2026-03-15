@@ -61,6 +61,17 @@ class TaskScheduler:
         """停止调度器（当前仅记录日志）。"""
         logging.info("Task scheduler stopped successfully")
 
+    @staticmethod
+    def _node_workload(item: tuple) -> float:
+        """提取节点负载值，兼容 dict 和对象两种格式。"""
+        _, value = item
+        return value["workload"] if isinstance(value, dict) else value.workload
+
+    @staticmethod
+    def _least_load(nodes: Dict) -> str:
+        """最少负载策略：选择负载最低的节点。"""
+        return min(nodes.items(), key=TaskScheduler._node_workload)[0]
+
     def set_policy(self, policy: str):
         """设置调度策略。"""
         self.policy = policy
@@ -117,19 +128,6 @@ class TaskScheduler:
         selected = keys[self._rr_index % len(keys)]
         self._rr_index += 1
         return selected
-
-    # ── private methods ──────────────────────────────────────────────────
-
-    @staticmethod
-    def _node_workload(item: tuple) -> float:
-        """提取节点负载值，兼容 dict 和对象两种格式。"""
-        _, value = item
-        return value["workload"] if isinstance(value, dict) else value.workload
-
-    @staticmethod
-    def _least_load(nodes: Dict) -> str:
-        """最少负载策略：选择负载最低的节点。"""
-        return min(nodes.items(), key=TaskScheduler._node_workload)[0]
 
     def _select_node(self) -> Optional[str]:
         """根据策略选择节点。"""

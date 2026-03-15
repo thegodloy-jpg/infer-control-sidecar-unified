@@ -44,7 +44,7 @@ def want_topk(name: str, default: str = "1") -> bool:
     if v in ("0", "false"):
         return False
 
-    #  defaultdefault
+    # Fall back to the default value
     d = (default or "").strip().lower()
     return d in ("1", "true")
 

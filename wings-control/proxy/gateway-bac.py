@@ -1,3 +1,35 @@
+# =============================================================================
+# 文件: proxy/gateway.py
+# 用途: 主业务代理应用，转发 OpenAI 兼容请求到后端推理引擎
+# 状态: 活跃，复用自 wings 项目
+#
+# 功能概述:
+#   本模块是 sidecar 代理层的核心入口，承担以下职责：
+#   1. 对外暴露 OpenAI 兼容接口 (/v1/chat/completions 等)
+#   2. 将请求转发到 backend engine (vLLM/SGLang/MindIE)
+#   3. 对流式/非流式响应采用不同的回传策略，兼顾首包延迟 (TTFT) 和吞吐
+#   4. 维护观测头 (X-InFlight 等)、重试信息、并发控制
+#   5. 提供 /health、/metrics、/v1/models 等辅助接口
+#
+# 核心组件:
+#   - QueueGate    : 双闸门 FIFO 排队控制器（来自 queueing.py）
+#   - httpx.AsyncClient : 异步 HTTP 客户端池
+#   - health 状态机 : 后台持续探测后端健康
+#
+# 请求流程:
+#   Client -> Gateway (/v1/chat/completions)
+#       -> gate.acquire()
+#       -> _send_with_fixed_retries() -> backend
+#       -> _stream_gen() / _pipe_nonstream()
+#       -> StreamingResponse / JSONResponse
+#       -> gate.release()
+#
+# Sidecar 架构契约:
+#   - 保持转发语义和重试行为稳定
+#   - 避免不兼容的重写，仅做最小化适配
+#   - 通过 uvicorn "app.proxy.gateway:app" 启动
+#
+# =============================================================================
 # -*- coding: utf-8 -*-
 """主业务代理入口。
 
@@ -10,7 +42,6 @@
 from __future__ import annotations
 import asyncio
 import inspect
-import json
 import random
 import time
 import os
@@ -19,12 +50,6 @@ from typing import Any, AsyncIterator, Dict
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
-
-from fastchat.protocol.openai_api_protocol import ChatCompletionRequest
-
-# RAG 加速
-from rag_acc.rag_app import is_rag_scenario, rag_acc_chat
-from rag_acc.extract_dify_info import is_dify_scenario
 
 from . import proxy_config as C
 from .http_client import create_async_client
@@ -48,6 +73,30 @@ from .health_router import (
     build_health_body,
     build_health_headers,
 )
+
+# RAG 加速 — 从 v2 迁移（lazy import，因 fastchat 为可选依赖）
+_rag_imported = False
+is_rag_scenario = None
+rag_acc_chat = None
+is_dify_scenario = None
+extract_dify_info = None
+
+
+def _ensure_rag_imports():
+    global _rag_imported, is_rag_scenario, rag_acc_chat, is_dify_scenario, extract_dify_info
+    if _rag_imported:
+        return True
+    try:
+        from app.rag_acc.rag_app import is_rag_scenario as _isr, rag_acc_chat as _rac
+        from app.rag_acc.extract_dify_info import is_dify_scenario as _ids, extract_dify_info as _edi
+        is_rag_scenario = _isr
+        rag_acc_chat = _rac
+        is_dify_scenario = _ids
+        extract_dify_info = _edi
+        _rag_imported = True
+        return True
+    except ImportError:
+        return False
 
 configure_worker_logging()
 
@@ -316,19 +365,19 @@ async def _send_with_fixed_retries(
 
             # Wrap connection error as HTTP 502 Bad Gateway
             if isinstance(e, httpx.RequestError):
-                raise HTTPException(502, "backend connect error") from e
+                raise HTTPException(502, f"backend connect error: {e}") from e
             raise
 
     #
     if last_exc is not None:
         if isinstance(last_exc, httpx.RequestError):
             elog("retry_final_fail", rid=rid, tries=total, final_error=str(last_exc))
-            raise HTTPException(502, "backend connect error") from last_exc
+            raise HTTPException(502, f"backend connect error: {last_exc}") from last_exc
         elog("retry_final_fail", rid=rid, tries=total, final_error=str(last_exc))
         raise last_exc
     if last_status is not None:
         elog("retry_final_fail", rid=rid, tries=total, final_status=last_status)
-        raise HTTPException(502, f"backend error after retries (status {last_status})")
+        raise HTTPException(502, f"backend 5xx after retries: {last_status}")
     elog("retry_final_fail", rid=rid, tries=total, reason="unknown")
     raise HTTPException(502, "backend error after retries")
 
@@ -347,8 +396,6 @@ async def _startup():
     # 启动后台健康轮询，让 `/health` 能读到持续更新的状态。
     setup_health_monitor(app)
     C.logger.info("Reason-Proxy is starting on %s:%s (health monitor loop enabled)", C.HOST, C.PORT)
-    # 启动确认日志
-    C.logger.info("Proxy ready: http://0.0.0.0:%s -> backend %s", C.PORT, C.BACKEND_URL)
 
 
 @app.on_event("shutdown")
@@ -507,12 +554,6 @@ async def _acquire_gate_early_nonstream(req: Request, gate: QueueGate, rid: str 
     非流式场景下采用"早释放"策略：在发送后端请求之前先 acquire 闸门
     以获取排队等待信息，随即 release 释放并发槽位，这样排队延迟
     不会叠加到后端处理时间上。
-
-    设计说明：
-    "早释放"是有意为之的性能优化。闸门仅用于控制准入速率（rate limiting），
-    而非限制后端并发数（concurrency limiting）。这避免了代理层成为吞吐瓶颈，
-    让后端引擎自行管理其并发能力。队列溢出（drop_oldest / reject）需配合
-    足够高的请求到达速率才能触发。
 
     Args:
         req:  原始客户端请求对象
@@ -791,11 +832,6 @@ async def _acquire_gate_early(req: Request, gate: QueueGate, rid: str) -> Dict[s
     采用"早释放"策略，在发送后端请求前先通过闸门排队，获取排队
     等待信息后立即释放并发槽位，避免长时间流式传输期间占用闸门。
 
-    设计说明：
-    "早释放"是有意为之的性能优化。闸门仅用于控制准入速率（rate limiting），
-    而非限制后端并发数（concurrency limiting）。这避免了代理层成为吞吐瓶颈，
-    让后端引擎自行管理其并发能力。
-
     Args:
         req:  原始客户端请求对象
         gate: QueueGate 排队控制器实例
@@ -873,6 +909,12 @@ async def handle_rag_scenario(req: Request, upstream_path: str):
     当 RAG_ACC_ENABLED 为 true 时，检测请求是否匹配 RAG / Dify 场景，
     若匹配则走 Map-Reduce 加速路径，否则回退到普通流式转发。
     """
+    if not _ensure_rag_imports():
+        jlog("rag module not available (fastchat not installed), falling back")
+        return await _forward_stream(req, upstream_path)
+
+    from fastchat.protocol.openai_api_protocol import ChatCompletionRequest
+
     body = await req.body()
     rid = req.headers.get("x-request-id")
 
@@ -883,7 +925,8 @@ async def handle_rag_scenario(req: Request, upstream_path: str):
 
     # 解析请求体为 ChatCompletionRequest
     try:
-        payload_dict = json.loads(body)
+        import json as _json
+        payload_dict = _json.loads(body)
         chat_input = ChatCompletionRequest(**payload_dict)
     except Exception as e:
         elog("rag_parse_error", rid=rid, detail=str(e))
@@ -966,14 +1009,7 @@ async def embeddings(req: Request):
 
 @app.post("/tokenize")
 async def tokenize(req: Request):
-    """分词接口，将请求透传到后端的 /tokenize 端点。
-
-    兼容性说明:
-        vLLM 使用 ``{"text": "..."}`` 字段名;
-        SGLang 使用 ``{"prompt": "..."}`` 字段名。
-        代理层采用透传策略，不做字段翻译——调用方需根据实际
-        后端引擎使用对应的字段名。(B-02)
-    """
+    """分词接口，将请求透传到 vLLM 后端的 /tokenize 端点。"""
     return await _forward_nonstream(req, "/tokenize")
 
 
@@ -1070,7 +1106,7 @@ async def models_proxy(request: Request):
         )
     except Exception as e:
         elog("models_proxy_error", rid=rid, detail=str(e))
-        raise HTTPException(status_code=502, detail="backend unavailable") from e
+        raise HTTPException(status_code=502, detail=f"Backend unavailable: {e}") from e
 
 
 @app.get("/v1/version")

@@ -50,13 +50,13 @@ async def create_async_client() -> httpx.AsyncClient:
         transport=transport,
         timeout=httpx.Timeout(
             connect=C.HTTPX_CONNECT_TIMEOUT,
-            read=None,     #
+            read=None,  # No read timeout: streaming responses may take unbounded time
             write=C.HTTPX_WRITE_TIMEOUT,
             pool=C.HTTPX_POOL_TIMEOUT,
         ),
         follow_redirects=False,
         headers={"connection": "keep-alive"},
-        trust_env=False,  # settings  *_proxy
-        #  base_url
+        trust_env=False,  # Ignore OS-level proxy settings managed by Wings
+        # base_url not set; resolved dynamically per-request in gateway
     )
     return client

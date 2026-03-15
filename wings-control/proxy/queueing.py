@@ -180,7 +180,7 @@ class QueueGate:
         )
 
 
-    #  QueueGate /
+    # QueueGate public interface methods
 
 
     def obs_headers(self, extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
@@ -219,7 +219,7 @@ class QueueGate:
             return
         layer = self._holders.pop(task_id)
 
-        #  sem
+        # Release semaphore or hand off slot to next queued waiter
         if self.q is not None:
             while not self.q.empty():
                 waiter: Waiter = await self.q.get()
@@ -261,7 +261,7 @@ class QueueGate:
 
         self._log_acquire_try(rid, t0)
 
-        #  Gate-0 Gate-1
+        # Try direct fast-path through Gate-0, then Gate-1
         if await self._try_direct_gate(self.g0, self.g0_cap, 0, rid, t0):
             headers_out["X-Queued-Wait"] = "0.0ms"
             return headers_out
@@ -286,7 +286,7 @@ class QueueGate:
         #
         await self._enqueue_waiter(waiter, headers_out, rid)
 
-        #  sem.acquire
+        # Wait for slot handover from a concurrent release() call
         layer = await self._wait_for_wakeup(fut, waiter, rid)
         return self._inherit_occupy(layer, headers_out, waiter, rid)
 
@@ -320,7 +320,7 @@ class QueueGate:
                     status_code=503, detail="server busy: queue full",
                     headers={"Retry-After": "1", "Connection": "close", "X-Queue-Full": "true"}
                 )
-            #  block put()
+            # Overflow mode is 'block': fall through to blocking put()
         elif C.QUEUE_OVERFLOW_MODE != "block":
             _elog("qgate_queue_full_reject", rid=rid)
             raise HTTPException(

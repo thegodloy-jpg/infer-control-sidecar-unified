@@ -226,7 +226,7 @@ def _build_cache_env_commands(engine: str) -> List[str]:
     env_commands.append('export PYTHONHASHSEED=0')
 
     if engine == "vllm":
-        #  kv_agent + sparse
+        # Prepend kv_agent + sparse native lib paths to LD_LIBRARY_PATH
         lib_path = _sanitize_shell_path(os.getenv(
             "KV_AGENT_LIB_PATH",
             "/opt/vllm_env/lib/python3.10/site-packages/kv_agent/lib",
@@ -240,7 +240,7 @@ def _build_cache_env_commands(engine: str) -> List[str]:
         env_commands.append('export LD_LIBRARY_PATH="${_KV_LIB_PATH}:${_SPARSE_LIB_PATH}:${LD_LIBRARY_PATH:-}"')
         logger.info("[KVCache Offload] Added LD_LIBRARY_PATH for vllm: %s, %s", lib_path, sparse_lib_path)
     elif engine == "vllm_ascend":
-        #  lmcache
+        # Prepend lmcache native lib path to LD_LIBRARY_PATH
         lib_path = _sanitize_shell_path(os.getenv(
             "LMCACHE_LIB_PATH",
             "/opt/ascend_env/lib/python3.11/site-packages/lmcache",

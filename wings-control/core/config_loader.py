@@ -40,7 +40,7 @@ from utils.device_utils import check_pcie_cards
 logger = logging.getLogger(__name__)
 
 
-#  解析默认配置目录路径（优先级：环境变量 > 包内自带 > 硬编码回退）
+# 解析默认配置目录路径（优先级：环境变量 > 包内自带 > 硬编码回退）
 def _resolve_default_config_dir() -> str:
     """解析默认配置目录，放在此目录下的配置文件为引擎提供默认参数。
 
@@ -524,7 +524,7 @@ def _set_sequence_length(params, engine_cmd_parameter):
     input_len = engine_cmd_parameter.get("input_length")
     output_len = engine_cmd_parameter.get("output_length")
 
-    #  None
+    # Default None values to 0 before summation
     input_len = input_len if input_len is not None else 0
     output_len = output_len if output_len is not None else 0
 
@@ -1450,7 +1450,7 @@ def _get_model_specific_config(hardware_env: Dict[str, Any],
             and not cmd_known_params.get("distributed")
         )
 
-        #  H20
+        # Detect H20 GPU model variant for memory-optimized configs
         h20_model = _get_h20_model_hint()
 
         for model, config in model_architecture_dict.items():

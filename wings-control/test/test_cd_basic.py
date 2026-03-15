@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
-import logging
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-logger = logging.getLogger(__name__)
-
 """Test C-8: Noise filter."""
+import logging
 import os
 import sys
 
@@ -12,12 +8,15 @@ _WINGS_DIR = '/opt/wings-control'
 if _WINGS_DIR not in sys.path:
     sys.path.append(_WINGS_DIR)
 
-from core.hardware_detect import detect_hardware
-from core.port_plan import derive_port_plan
-from core.start_args_compat import parse_launch_args
-from utils.log_config import setup_root_logging, LOGGER_LAUNCHER, LOGGER_PROXY, LOGGER_HEALTH
-from utils.noise_filter import install_noise_filters
-from utils.process_utils import log_process_pid, safe_write_file, wait_for_process_startup
+from core.hardware_detect import detect_hardware  # noqa: E402
+from core.port_plan import derive_port_plan  # noqa: E402
+from core.start_args_compat import parse_launch_args  # noqa: E402
+from utils.log_config import setup_root_logging, LOGGER_LAUNCHER, LOGGER_PROXY, LOGGER_HEALTH  # noqa: E402
+from utils.noise_filter import install_noise_filters  # noqa: E402
+from utils.process_utils import log_process_pid, safe_write_file, wait_for_process_startup  # noqa: E402
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger(__name__)
 
 install_noise_filters()
 logger.info("C-8: Noise filters installed OK")
