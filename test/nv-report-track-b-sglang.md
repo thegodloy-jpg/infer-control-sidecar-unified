@@ -324,21 +324,22 @@ Avg: 0.59s, Max: 0.60s
 
 ## 问题清单
 
-### 问题 B-01: SGLang env script 路径警告 ⚠️ 低优先级
+### 问题 B-01: SGLang env script 路径警告 ✅ 已修复
 - **严重程度**: P3
 - **分类**: 配置 / 兼容性
 - **现象**: `[WARNING] SGLang env script not found at /wings/config/set_sglang_env.sh`
 - **原因**: `sglang_adapter.py` 中 `_build_base_env_commands()` 查找 `<root>/wings/config/set_sglang_env.sh`, 但 sidecar 容器内该路径不存在
 - **影响**: 仅打印 WARNING, 不影响功能 (脚本主要用于设置特殊 SGLang 环境变量如 SGLANG_DISABLE_CUDNN_CHECK)
-- **建议**: 可忽略; 若需要设置, 可将该脚本打包进 wings-control 镜像或通过环境变量注入
+- **修复**: 将 `logger.warning()` 降为 `logger.debug()` — sidecar 模式下脚本不存在是预期行为，不应产生告警噪音
+- **修复文件**: `engines/sglang_adapter.py` L95
 
-### 问题 B-02: /tokenize 端点 API 差异 ⚠️ 已知差异
+### 问题 B-02: /tokenize 端点 API 差异 ✅ 已记录 (设计决策)
 - **严重程度**: P3
 - **分类**: 兼容性
 - **现象**: SGLang tokenize API 使用 `prompt` 字段, vLLM 使用 `text` 字段
 - **代码行为**: proxy 直接转发请求体, 不做字段名翻译
 - **影响**: 使用 tokenize 端点的客户端需根据底层引擎选择正确的字段名
-- **建议**: 可考虑在 proxy 层增加兼容转换 (低优先级, tokenize 非核心 API)
+- **处理**: 已在 `proxy/gateway.py` tokenize 端点的 docstring 中添加兼容性说明 (B-02 标注)。维持透传策略 — tokenize 非核心 API，字段翻译可能引入新问题
 
 ---
 

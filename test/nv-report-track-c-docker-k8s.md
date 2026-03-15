@@ -300,12 +300,13 @@ INFO:     Finished server process [21]
 - **K8s 影响**: 无（`deployment.yaml` 使用 `command:` 覆盖 ENTRYPOINT）
 - **状态**: ℹ️ 已知限制，仅影响 Docker 直接调试
 
-### 问题 C-03
+### 问题 C-03 ✅ 已修复
 - **严重程度**: P3
 - **分类**: 环境
 - **现象**: python:3.10-slim 基础镜像无 procps 包
 - **影响**: 容器内无 `ps`/`pgrep`/`pkill` 命令，调试进程管理需从宿主机操作
-- **建议**: 如有调试需要可在 Dockerfile 中 `apt-get install -y procps`
+- **修复**: 已在 Dockerfile 的 `apt-get install` 中添加 `procps` 包
+- **修复文件**: `wings-control/Dockerfile` L31
 
 
 ---

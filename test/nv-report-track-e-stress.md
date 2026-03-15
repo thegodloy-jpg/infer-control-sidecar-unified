@@ -337,14 +337,14 @@ X-Queued-Wait 也为 0.0ms（请求从未进入队列等待）。
 
 ## 问题清单
 
-### 问题 E-DOC-1: 测试报告中环境变量名称有误
+### 问题 E-DOC-1: 测试报告中环境变量名称有误 ✅ 已修复
 - **严重程度**: P2
 - **分类**: 文档
 - **现象**: E-2 操作步骤中使用 `GATE0_LOCAL_CAP=5, GATE1_LOCAL_CAP=5, LOCAL_QUEUE_MAXSIZE=5` 作为 docker run 环境变量
 - **期望行为**: 应使用 `GLOBAL_PASS_THROUGH_LIMIT, GLOBAL_QUEUE_MAXSIZE` — 这些才是 `proxy_config.py` 实际读取的环境变量
 - **实际行为**: `GATE0_LOCAL_CAP` 等变量是 Python 代码中的计算值 (`_split_strict()`)，不从环境直接读取，设置后被忽略
 - **涉及文件**: `proxy/proxy_config.py` (line 148-159)
-- **修复建议**: 将测试步骤改为设置 `GLOBAL_PASS_THROUGH_LIMIT` 和 `GLOBAL_QUEUE_MAXSIZE`
+- **修复**: 已将 E-2 docker run 命令改为 `GLOBAL_PASS_THROUGH_LIMIT=3, GLOBAL_QUEUE_MAXSIZE=2`，并添加注释说明计算值与环境变量的区别
 
 ### 问题 E-DESIGN-1: QueueGate 早释放模式下队列溢出不可达 (设计说明)
 - **严重程度**: ~~P3~~ → 非问题 (by design)
