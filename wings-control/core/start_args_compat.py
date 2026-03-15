@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import os
 from dataclasses import dataclass
 
@@ -45,7 +46,7 @@ def _env_float(name: str, default: float) -> float:
     """从环境变量读取浮点值，解析失败或值为 inf/nan 时返回默认值。"""
     try:
         val = float(_env(name, str(default)))
-        if not __import__('math').isfinite(val):
+        if not math.isfinite(val):
             return default
         return val
     except ValueError:

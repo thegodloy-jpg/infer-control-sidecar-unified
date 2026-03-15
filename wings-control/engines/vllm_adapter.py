@@ -595,8 +595,6 @@ def _build_vllm_cmd_parts(params: Dict[str, Any]) -> str:
     # 使用浅拷贝避免修改调用方原始 engine_config
     engine_config = dict(engine_config)
     engine_config.pop("use_kunlun_atb", None)
-    # if params.get("distributed"):
-        # raise ValueError("Distributed mode is disabled in sidecar launcher MVP.")
 
     # vllm/vllm-openai image guarantees python3, while python may be absent.
     cmd_parts = ["python3", "-m", "vllm.entrypoints.openai.api_server"]
@@ -774,40 +772,6 @@ def _build_sparse_cmd(params: Dict[str, Any], engine: str) -> str:
     config_kv_transfer_tmp = []
     config_kv_transfer = _build_kv_transfer_config(params, config_kv_transfer_tmp)
     return config_sparse + config_kv_transfer + " --enforce-eager"
-
-
-def _build_vllm_command(params: Dict[str, Any]) -> str:
-    """构建完整的 vLLM 服务启动命令（含环境设置）。
-
-    将环境变量设置和核心启动命令组合为单行命令：
-    source env.sh && export VAR=val && python3 -m vllm...
-
-    Args:
-        params: 服务器参数字典
-
-    Returns:
-        str: 完整的 vLLM 服务启动命令字符串
-
-    注意:
-        - 此函数主要用于单机模式
-        - 分布式模式应使用 build_start_script()
-    """
-    current_ip = get_local_ip()
-    # Skip netifaces auto-detection to avoid dependency
-    network_interface = os.getenv("NETWORK_INTERFACE", os.getenv("GLOO_SOCKET_IFNAME", "eth0"))
-
-    # Build environment variable commands
-    env_commands = _build_env_commands(
-        params, current_ip, network_interface, root_dir
-    )
-
-    # Build main command
-    command_str = _build_vllm_cmd_parts(params)
-
-    # Combine full command
-    if env_commands:
-        return " && ".join(env_commands) + " && " + command_str
-    return command_str
 
 
 def build_start_command(params: Dict[str, Any]) -> str:

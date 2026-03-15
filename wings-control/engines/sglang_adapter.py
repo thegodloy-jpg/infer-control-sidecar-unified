@@ -45,24 +45,8 @@ SGLang 引擎适配器。
 
 import logging
 import os
-import re
 import shlex
 from typing import Dict, Any, List
-
-
-def _sanitize_shell_path(path: str) -> str:
-    """从文件路径中移除 shell 元字符，防止命令注入攻击。
-
-    使用 shlex.quote() 进行标准 POSIX shell 转义，
-    相比简单的正则过滤更安全且不会破坏包含空格的合法路径。
-
-    Args:
-        path: 原始文件路径字符串
-
-    Returns:
-        str: 经过 shell 安全转义的路径
-    """
-    return shlex.quote(path)
 
 
 # 日志记录器

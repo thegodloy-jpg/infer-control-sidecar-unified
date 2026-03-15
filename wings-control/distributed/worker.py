@@ -35,7 +35,6 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional
-from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import FastAPI
 from pydantic import BaseModel

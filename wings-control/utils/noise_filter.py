@@ -51,7 +51,7 @@ import os
 import re
 import sys
 import warnings
-from typing import Optional, Iterable
+from typing import Iterable
 
 
 # -----------------  -----------------

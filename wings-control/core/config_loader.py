@@ -20,7 +20,7 @@
 # Copyright (c) xFusion Digital Technologies Co., Ltd. 2025-2025. All rights reserved.
 # -*- coding: utf-8 -*-
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 import argparse
 import json
 import logging
@@ -38,6 +38,7 @@ from utils.model_utils import ModelIdentifier, is_qwen3_32b_nvfp4, is_deepseek_s
 from utils.device_utils import check_pcie_cards
 
 logger = logging.getLogger(__name__)
+
 
 #  解析默认配置目录路径（优先级：环境变量 > 包内自带 > 硬编码回退）
 def _resolve_default_config_dir() -> str:

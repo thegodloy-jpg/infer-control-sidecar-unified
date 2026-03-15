@@ -7,7 +7,6 @@ class NonBlockingQueue:
         self._queue = collections.deque()
         self._lock = asyncio.Lock()
         self._not_empty = asyncio.Event()
-        self._finished = False
 
     def qsize(self):
         return len(self._queue)
@@ -45,12 +44,6 @@ class NonBlockingQueue:
                 except IndexError:
                     self._not_empty.clear()
             await self._not_empty.wait()
-
-    def finish(self):
-        self._finished = True
-
-    def is_finished(self):
-        return self._finished and self.empty()
 
     def prepend(self, item):
         self._queue.appendleft(item)

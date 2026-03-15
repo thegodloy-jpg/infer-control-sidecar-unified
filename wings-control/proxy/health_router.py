@@ -42,7 +42,7 @@ import contextlib
 import os
 import random
 import time
-from typing import Optional, Tuple, Dict
+from typing import Optional, Tuple
 from dataclasses import dataclass
 import httpx
 
@@ -161,7 +161,7 @@ async def _strict_probe_backend_health(client: httpx.AsyncClient) -> Tuple[bool,
         )
         code = resp.status_code
         await resp.aclose()
-        ok = (code == 200)  #  200 ""
+        ok = (code == 200)  # 200 表示健康
     except httpx.ConnectTimeout:
         ok, code, err_kind = False, 0, "connect_timeout"
     except httpx.ReadTimeout:

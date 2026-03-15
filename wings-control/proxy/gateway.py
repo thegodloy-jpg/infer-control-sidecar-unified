@@ -54,6 +54,10 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from fastchat.protocol.openai_api_protocol import ChatCompletionRequest
 
+# RAG 加速
+from rag_acc.rag_app import is_rag_scenario, rag_acc_chat
+from rag_acc.extract_dify_info import is_dify_scenario
+
 from . import proxy_config as C
 from .http_client import create_async_client
 from .queueing import QueueGate
@@ -76,10 +80,6 @@ from .health_router import (
     build_health_body,
     build_health_headers,
 )
-
-# RAG 加速
-from rag_acc.rag_app import is_rag_scenario, rag_acc_chat
-from rag_acc.extract_dify_info import is_dify_scenario, extract_dify_info
 
 configure_worker_logging()
 
@@ -1102,7 +1102,7 @@ async def models_proxy(request: Request):
         )
     except Exception as e:
         elog("models_proxy_error", rid=rid, detail=str(e))
-        raise HTTPException(status_code=502, detail="backend unavailable")
+        raise HTTPException(status_code=502, detail="backend unavailable") from e
 
 
 @app.get("/v1/version")

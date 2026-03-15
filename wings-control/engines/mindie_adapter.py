@@ -61,24 +61,6 @@ logger = logging.getLogger(__name__)
 root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-def _sanitize_shell_path(path: str) -> str:
-    """对路径进行 shell 安全转义，防止命令注入攻击。
-
-    使用 shlex.quote() 进行标准 POSIX shell 转义，
-    相比简单的正则过滤更安全且不会破坏包含空格的合法路径。
-
-    注意：返回值已包含外部引号（如 '/path/to/file'），
-    嵌入 shell 脚本时不需要再加引号。
-
-    Args:
-        path: 原始文件路径字符串
-
-    Returns:
-        str: 经过 shell 安全转义的路径
-    """
-    return shlex.quote(path)
-
-
 # =============================================================================
 # MindIE 服务路径常量（可通过环境变量覆盖）
 #
