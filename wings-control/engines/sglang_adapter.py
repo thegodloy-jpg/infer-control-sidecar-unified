@@ -1,34 +1,3 @@
-# =============================================================================
-# 文件: engines/sglang_adapter.py
-# 用途: SGLang 推理引擎适配器
-# 状态: 活跃适配器
-#
-# 功能概述:
-#   本模块负责将统一的参数字典转换为 SGLang 的启动命令。
-#   SGLang 是一个高性能 LLM 推理引擎，支持 RadixAttention 等优化技术。
-#
-# 支持的部署模式:
-#   - 单机模式:    直接运行 sglang.launch_server
-#   - 分布式模式:  多节点分布式推理 (--nnodes, --node-rank, --dist-init-addr)
-#
-# 核心接口:
-#   - build_start_script(params) : 返回完整 bash 脚本（推荐，含环境设置）
-#   - build_start_command(params): 返回核心启动命令（兼容旧版）
-#   - start_engine(params)       : 已禁用，sidecar 模式不允许直接启动进程
-#
-# Sidecar 架构契约:
-#   - 仅负责命令拼装，不启动任何子进程
-#   - 生成的脚本写入共享卷，由 engine 容器执行
-#
-# 引擎启动命令格式:
-#   python3 -m sglang.launch_server \\
-#       --model-path <model_path> \\
-#       --host 0.0.0.0 \\
-#       --port 17000 \\
-#       --tp-size <tp_size> \\
-#       [--nnodes <n> --node-rank <rank> --dist-init-addr <addr:port>]
-#
-# =============================================================================
 # Copyright (c) xFusion Digital Technologies Co., Ltd. 2025-2025. All rights reserved.
 # -*- coding: utf-8 -*-
 

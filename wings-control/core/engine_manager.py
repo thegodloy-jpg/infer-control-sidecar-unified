@@ -1,12 +1,3 @@
-# =============================================================================
-# File: core/engine_manager.py
-# Purpose: 引擎适配器动态调度器 — 根据 engine 名称通过 importlib 动态加载对应
-#          adapter 模块，并调用其 build_start_script / build_start_command 生成
-#          engine 容器内实际执行的 shell 启动脚本。
-# Architecture:
-#   wings_entry.py → engine_manager.py → engines/<engine>_adapter.py
-#   本模块是中间调度层，不直接拼命令，只负责 adapter 发现和接口协商。
-# =============================================================================
 # Copyright (c) xFusion Digital Technologies Co., Ltd. 2025-2025. All rights reserved.
 # -*- coding: utf-8 -*-
 

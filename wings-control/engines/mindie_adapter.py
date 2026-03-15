@@ -1,39 +1,3 @@
-# =============================================================================
-# 文件: engines/mindie_adapter.py
-# 用途: MindIE（华为昇腾）推理引擎适配器
-# 状态: 活跃适配器
-#
-# 功能概述:
-#   本模块负责将统一的参数字典转换为 MindIE 的配置和启动命令。
-#   MindIE 是华为昇腾 NPU 上的优化推理服务。
-#
-# 与 vLLM/SGLang 的差异:
-#   - MindIE 使用 JSON 配置文件 (conf/config.json)，而非 CLI 参数
-#   - 需要在运行时合并更新 config.json，保留镜像原有配置
-#   - 分布式模式需要生成 HCCL rank table 文件
-#
-# 支持的部署模式:
-#   - 单节点 TP (张量并行): 多张 NPU 卡分担模型层
-#   - 多节点 DP (数据并行): 多节点分担请求负载
-#
-# 核心接口:
-#   - build_start_script(params) : 返回完整 bash 脚本（含配置合并 + 启动命令）
-#   - build_start_command(params): 返回核心启动命令（仅启动 daemon）
-#   - start_engine(params)       : 已禁用，sidecar 模式不允许直接启动进程
-#
-# 生成的脚本结构:
-#   1. source Ascend CANN 和 MindIE 环境脚本
-#   2. 设置分布式环境变量 (HCCL/MASTER_ADDR等) [多节点时]
-#   3. 写入 HCCL rank table 文件 [多节点时]
-#   4. 通过内联 Python 合并更新 conf/config.json
-#   5. 启动 mindieservice_daemon
-#
-# Sidecar 架构契约:
-#   - build_start_script 是 launcher 唯一调用的入口
-#   - 生成的脚本写入共享卷，由 engine 容器执行
-#   - 不得重新引入直接进程启动逻辑
-#
-# =============================================================================
 # Copyright (c) xFusion Digital Technologies Co., Ltd. 2025-2025. All rights reserved.
 # -*- coding: utf-8 -*-
 

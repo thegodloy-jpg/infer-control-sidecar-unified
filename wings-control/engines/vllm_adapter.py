@@ -1,36 +1,3 @@
-# =============================================================================
-# 文件: engines/vllm_adapter.py
-# 用途: vLLM / vLLM-Ascend 推理引擎适配器
-# 状态: 活跃适配器，sidecar launcher 模式下禁用进程启动 API
-#
-# 功能概述:
-#   本模块负责将统一的参数字典转换为 vLLM 的启动命令和环境变量设置。
-#   支持以下部署模式：
-#     - 单机模式:       直接运行 vLLM OpenAI API Server
-#     - Ray 分布式:    多节点 Ray 集群，rank0 为 head，其他为 worker
-#     - DP 分布式:     数据并行模式（dp_deployment 后端）
-#     - PD 分离:       Prefill-Decode 分离架构（NIXL 协议）
-#     - vLLM-Ascend: 华为昇腾 NPU 版本（需要 CANN 环境）
-#
-# 核心接口:
-#   - build_start_script(params) : 返回完整 bash 脚本（推荐，含环境设置）
-#   - build_start_command(params): 返回核心启动命令（兼容旧版）
-#   - start_engine(params)       : 已禁用，sidecar 模式不允许直接启动进程
-#
-# Sidecar 架构契约:
-#   - build_start_script 是 launcher 唯一调用的入口
-#   - 生成的脚本写入共享卷，由 engine 容器执行
-#   - 不得重新引入直接进程启动逻辑
-#
-# 引擎启动命令格式:
-#   python3 -m vllm.entrypoints.openai.api_server \
-#       --model <model_path> \
-#       --host 0.0.0.0 \
-#       --port 17000 \
-#       --tensor-parallel-size <tp_size> \
-#       [--distributed-executor-backend ray]
-#
-# =============================================================================
 # Copyright (c) xFusion Digital Technologies Co., Ltd. 2025-2025. All rights reserved.
 # -*- coding: utf-8 -*-
 
