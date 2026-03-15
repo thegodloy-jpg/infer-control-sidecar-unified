@@ -152,7 +152,7 @@ def _discover_worker_count() -> int:
         v = os.getenv(k, "").strip()
         if not v:
             continue
-        if not v.isdecimal():  #  try/except
+        if not v.isdecimal():  # 避免 try/except；只接受十进制数字
             _lg.debug("Env %s=%r is not a positive integer string", k, v)
             continue
         n = int(v)
