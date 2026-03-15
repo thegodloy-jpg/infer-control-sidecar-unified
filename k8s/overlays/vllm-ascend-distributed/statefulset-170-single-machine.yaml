@@ -10,7 +10,7 @@
 # 与 NV vLLM-Ray 单机方案(150)的差异:
 #   1. 设备: davinci0/davinci1 (NPU) 替代 nvidia0/nvidia1 (GPU)
 #   2. 通信库: HCCL 替代 NCCL
-#   3. 环境变量: ASCEND_VISIBLE_DEVICES 替代 CUDA_VISIBLE_DEVICES
+#   3. 环境变量: ASCEND_RT_VISIBLE_DEVICES 替代 CUDA_VISIBLE_DEVICES
 #   4. CANN 环境: engine 容器需 source set_env.sh
 #   5. Ray NPU 资源: --resources='{"NPU":1}' 替代 --num-gpus=1（昇腾 Ray 不自动上报 NPU）
 #   6. 无需拷贝驱动库: CANN 已内嵌引擎镜像，只挂载 HAL 驱动
@@ -19,7 +19,7 @@
 #   1. Pod 网络: 不使用 hostNetwork，由 flannel CNI 分配独立 Pod IP
 #   2. hostPath IP 交换: 通过 /tmp/wings-ip-exchange 让同节点 Pod 交换各自 Pod IP
 #   3. NODE_RANK 由 StatefulSet hostname 序号派生（infer-0→0, infer-1→1）
-#   4. ASCEND_VISIBLE_DEVICES 同样由序号派生，实现 NPU 隔离
+#   4. ASCEND_RT_VISIBLE_DEVICES 同样由序号派生，实现 NPU 隔离
 #   5. 去掉 podAntiAffinity，两个 Pod 调度到同一节点
 #
 # 端口分配（每 Pod 独立 IP，无冲突）:
@@ -247,7 +247,6 @@ spec:
               ORDINAL=${POD_NAME##*-}
               # NPU 3 和 4 空闲, 映射: ordinal 0 → NPU 3, ordinal 1 → NPU 4
               NPU_ID=$((ORDINAL + 3))
-              export ASCEND_VISIBLE_DEVICES=$NPU_ID
               export ASCEND_RT_VISIBLE_DEVICES=$NPU_ID
               # 确保 CANN 环境已加载
               source /usr/local/Ascend/ascend-toolkit/set_env.sh 2>/dev/null || true

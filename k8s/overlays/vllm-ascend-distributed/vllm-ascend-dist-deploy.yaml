@@ -203,7 +203,7 @@ spec:
               echo "[engine] Executing..."
               cd /shared-volume && bash start_command.sh
           env:
-            - name: ASCEND_VISIBLE_DEVICES
+            - name: ASCEND_RT_VISIBLE_DEVICES
               value: "0"
             - name: POD_IP
               valueFrom:

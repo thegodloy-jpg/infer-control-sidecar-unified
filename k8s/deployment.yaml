@@ -93,9 +93,7 @@ spec:
             # ---- 加速开关 ----
             - name: ENABLE_ACCEL
               value: "true"
-            # ---- K8s sidecar 模式：引擎为独立容器，跳过 PID 文件检查 ----
-            - name: WINGS_SKIP_PID_CHECK
-              value: "true"
+            # 注: PID 检查已在 sidecar 版本中移除，状态机仅依据 backend HTTP 探活判定
           volumeMounts:
             - name: shared-volume
               mountPath: /shared-volume

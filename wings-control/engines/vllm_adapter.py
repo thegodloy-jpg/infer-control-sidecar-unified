@@ -1,0 +1,1173 @@
+﻿# =============================================================================
+# 文件: engines/vllm_adapter.py
+# 用途: vLLM / vLLM-Ascend 推理引擎适配器
+# 状态: 活跃适配器，sidecar launcher 模式下禁用进程启动 API
+#
+# 功能概述:
+#   本模块负责将统一的参数字典转换为 vLLM 的启动命令和环境变量设置。
+#   支持以下部署模式：
+#     - 单机模式:       直接运行 vLLM OpenAI API Server
+#     - Ray 分布式:    多节点 Ray 集群，rank0 为 head，其他为 worker
+#     - DP 分布式:     数据并行模式（dp_deployment 后端）
+#     - PD 分离:       Prefill-Decode 分离架构（NIXL 协议）
+#     - vLLM-Ascend: 华为昇腾 NPU 版本（需要 CANN 环境）
+#
+# 核心接口:
+#   - build_start_script(params) : 返回完整 bash 脚本（推荐，含环境设置）
+#   - build_start_command(params): 返回核心启动命令（兼容旧版）
+#   - start_engine(params)       : 已禁用，sidecar 模式不允许直接启动进程
+#
+# Sidecar 架构契约:
+#   - build_start_script 是 launcher 唯一调用的入口
+#   - 生成的脚本写入共享卷，由 engine 容器执行
+#   - 不得重新引入直接进程启动逻辑
+#
+# 引擎启动命令格式:
+#   python3 -m vllm.entrypoints.openai.api_server \
+#       --model <model_path> \
+#       --host 0.0.0.0 \
+#       --port 17000 \
+#       --tensor-parallel-size <tp_size> \
+#       [--distributed-executor-backend ray]
+#
+# =============================================================================
+# Copyright (c) xFusion Digital Technologies Co., Ltd. 2025-2025. All rights reserved.
+# -*- coding: utf-8 -*-
+
+"""
+vLLM 引擎适配器。
+
+在 sidecar launcher 模式下，本模块仅负责命令拼装，不启动任何子进程。
+生成的 shell 脚本将由 engine 容器读取并执行。
+
+支持的引擎类型:
+    - vllm:        NVIDIA GPU 版本，使用 NCCL 通信
+    - vllm_ascend: 华为昇腾 NPU 版本，使用 HCCL 通信
+
+分布式后端:
+    - ray:           Ray 集群模式，支持多节点 TP
+    - dp_deployment: 数据并行模式，支持多节点 DP
+"""
+
+import logging
+import os
+import re
+import shlex
+from typing import Dict, Any, List
+
+from utils.model_utils import ModelIdentifier, ModelIdentifierDraft, is_deepseek_series_fp8
+
+from utils.env_utils import get_local_ip, get_lmcache_env, \
+    get_pd_role_env, get_qat_env
+
+
+def _sanitize_shell_path(path: str) -> str:
+    """对路径进行 shell 安全转义，防止命令注入攻击。
+
+    使用 shlex.quote() 进行标准 POSIX shell 转义，
+    相比简单的正则过滤更安全且不会破坏包含空格的合法路径。
+
+    Args:
+        path: 原始文件路径字符串
+
+    Returns:
+        str: 经过 shell 安全转义的路径
+    """
+    return shlex.quote(path)
+
+logger = logging.getLogger(__name__)
+
+# ── 引擎版本解析 ──────────────────────────────────────────────────────
+# vllm-ascend 从 v0.14 起，Ray 集群使用自定义资源 --resources='{"NPU": 1}'
+# 代替 --num-gpus，以正确声明 Ascend NPU 设备。
+# 低版本 (< 0.14) 沿用 --num-gpus（兼容 V1 行为）。
+# 同时，v0.14 需要 Triton NPU 补丁和 --enforce-eager 标志。
+_ASCEND_NPU_RESOURCE_MIN_VERSION = (0, 14)
+
+
+def _parse_engine_version() -> tuple:
+    """解析 ENGINE_VERSION 环境变量为 (major, minor) 元组。
+
+    Returns:
+        (major, minor) 整数元组；若未设置或格式异常，返回 (0, 14)（默认当前版本）。
+    """
+    ver_str = os.getenv("ENGINE_VERSION", "").strip()
+    if not ver_str:
+        return _ASCEND_NPU_RESOURCE_MIN_VERSION  # 未设置时默认按当前版本处理
+    match = re.match(r"(\d+)\.(\d+)", ver_str)
+    if not match:
+        logger.warning(
+            "ENGINE_VERSION=%s format unrecognized, defaulting to %s",
+            ver_str, ".".join(str(v) for v in _ASCEND_NPU_RESOURCE_MIN_VERSION),
+        )
+        return _ASCEND_NPU_RESOURCE_MIN_VERSION
+    return (int(match.group(1)), int(match.group(2)))
+
+
+def _get_ray_resource_flag(engine: str, params: dict) -> str:
+    """根据引擎类型和版本返回 Ray 节点资源声明标志。
+
+    版本策略：
+      - vllm (NVIDIA):         始终使用 --num-gpus=1
+      - vllm_ascend >= 0.14:   使用 --resources='{"NPU": 1}'（NPU 自定义资源）
+      - vllm_ascend < 0.14:    使用 --num-gpus {tp_size}（兼容 V1 行为）
+
+    可通过 RAY_RESOURCE_FLAG 环境变量完全覆盖自动检测结果。
+    """
+    # 环境变量覆盖 — 允许用户完全自定义
+    override = os.getenv("RAY_RESOURCE_FLAG", "").strip()
+    if override:
+        logger.info("[ray] Using RAY_RESOURCE_FLAG override: %s", override)
+        return override
+
+    if engine != "vllm_ascend":
+        return "--num-gpus=1"
+
+    ver = _parse_engine_version()
+    if ver >= _ASCEND_NPU_RESOURCE_MIN_VERSION:
+        logger.info("[ray] Ascend engine version %s >= 0.14, using --resources NPU", ver)
+        return "--resources='{\"NPU\": 1}'"
+    else:
+        tp_size = params.get("device_count", 1)
+        logger.info("[ray] Ascend engine version %s < 0.14, using --num-gpus=%d (V1 compat)", ver, tp_size)
+        return f"--num-gpus={tp_size}"
+
+
+def _need_triton_patch_and_eager(engine: str) -> bool:
+    """判断是否需要 Triton NPU 补丁和 --enforce-eager 标志。
+
+    仅 vllm_ascend >= 0.14 需要：
+      - Triton NPU 驱动补丁（解决 "0 active drivers" 崩溃）
+      - --enforce-eager（绕过 Triton 编译）
+    低版本无此问题，不需要补丁。
+    """
+    if engine != "vllm_ascend":
+        return False
+    ver = _parse_engine_version()
+    return ver >= _ASCEND_NPU_RESOURCE_MIN_VERSION
+
+# 模块根目录：用于定位配置文件和环境脚本
+root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def _build_base_env_commands(params, engine: str, root: str) -> List[str]:
+    """构建基础环境变量设置命令列表。
+
+    仅 Ascend 引擎（vllm_ascend / mindie）需要环境初始化脚本，
+    用于加载 CANN toolkit 和设置昇腾专用环境变量。
+    NVIDIA 引擎（vllm / sglang）的 engine 容器已自带完整环境，
+    无需额外 source 或 env 设置。
+
+    脚本映射:
+      - vllm_ascend: config/set_vllm_ascend_env.sh
+      - mindie:      config/set_mindie_env.sh
+      - vllm/sglang: 无需脚本
+
+    start_command.sh 在 engine 容器内执行，此处读取脚本内容并
+    逐行内联到生成的脚本中，避免依赖 control 容器路径。
+
+    Args:
+        params: 参数字典，可能包含是否启用昆仑 ATB 等标志
+        engine: 引擎类型 ('vllm', 'vllm_ascend', 'sglang', 'mindie')
+        root:   项目根目录路径
+
+    Returns:
+        List[str]: shell 命令列表，每个元素是一条环境设置命令
+    """
+    env_commands = []
+    config_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config"
+    )
+    # 仅 Ascend 引擎需要环境初始化脚本
+    script_map = {
+        "vllm_ascend": "set_vllm_ascend_env.sh",
+        "mindie": "set_mindie_env.sh",
+    }
+    script_name = script_map.get(engine)
+    if script_name:
+        script_path = os.path.join(config_dir, script_name)
+        if os.path.exists(script_path):
+            # 读取脚本内容，逐行内联到 start_command.sh
+            with open(script_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    stripped = line.rstrip("\n\r")
+                    if stripped.startswith("#!"):
+                        continue
+                    env_commands.append(stripped)
+            logger.info("Inlined env script %s for engine %s (%d lines)",
+                        script_path, engine, len(env_commands))
+        else:
+            logger.warning("Env script %s not found, using fallback for %s", script_path, engine)
+            if engine in ("vllm_ascend", "mindie"):
+                env_commands.append("set +u")
+                env_commands.append(
+                    "[ -f /usr/local/Ascend/ascend-toolkit/set_env.sh ] "
+                    "&& source /usr/local/Ascend/ascend-toolkit/set_env.sh "
+                    "|| echo 'WARN: ascend-toolkit/set_env.sh not found'"
+                )
+                env_commands.append(
+                    "[ -f /usr/local/Ascend/nnal/atb/set_env.sh ] "
+                    "&& source /usr/local/Ascend/nnal/atb/set_env.sh "
+                    "|| echo 'WARN: nnal/atb/set_env.sh not found'"
+                )
+                env_commands.append("set -u")
+
+    # vllm_ascend 扩展: 昆仑 ATB 和 Qwen3Next 支持
+    if engine == "vllm_ascend":
+        if params.get("engine_config", {}).get("use_kunlun_atb"):
+            env_commands.append("export USE_KUNLUN_ATB=1")
+            logger.info("kunlun atb is used")
+        model_info = ModelIdentifier(
+            params.get("model_name"),
+            params.get("model_path"),
+            params.get("model_type")
+        )
+        if model_info.model_architecture == "Qwen3NextForCausalLM":
+            env_commands.append(
+                "source /usr/local/Ascend/ascend-toolkit/8.3.RC2/bisheng_toolkit/set_env.sh"
+            )
+            logger.info("Qwen3NextForCausalLM will source bisheng_toolkit")
+    return env_commands
+
+
+def _build_cache_env_commands(engine: str) -> List[str]:
+    """构建 KVCache Offload 特性的环境变量设置命令。
+
+    KVCache Offload 允许将 KV 缓存卸载到主机内存或远端存储，
+    这一特性需要额外的共享库支持，通过 LD_LIBRARY_PATH 注入。
+
+    支持的引擎和库路径:
+        - vllm:        kv_agent 库 (/opt/vllm_env/.../kv_agent/lib)
+        - vllm_ascend: lmcache 库 (/opt/ascend_env/.../lmcache)
+
+    Args:
+        engine: 引擎类型
+
+    Returns:
+        List[str]: LD_LIBRARY_PATH 设置命令列表，未启用时返回空列表
+
+    环境变量:
+        - LMCACHE_OFFLOAD: 是否启用 KVCache Offload (true/false)
+        - KV_AGENT_LIB_PATH: vLLM kv_agent 库路径
+        - LMCACHE_LIB_PATH:  vLLM-Ascend lmcache 库路径
+    """
+    env_commands = []
+    if not get_lmcache_env():
+        return env_commands
+
+    # 跨实例Hash一致
+    env_commands.append('export PYTHONHASHSEED=0')
+
+    if engine == "vllm":
+        #  kv_agent + sparse
+        lib_path = _sanitize_shell_path(os.getenv("KV_AGENT_LIB_PATH", "/opt/vllm_env/lib/python3.10/site-packages/kv_agent/lib"))
+        sparse_lib_path = _sanitize_shell_path(os.getenv("SPARSE_LIB_PATH", "/opt/vllm_env/lib/python3.10/site-packages/vsparse/native"))
+        env_commands.append(f'_KV_LIB_PATH={lib_path}')
+        env_commands.append(f'_SPARSE_LIB_PATH={sparse_lib_path}')
+        env_commands.append('export LD_LIBRARY_PATH="${_KV_LIB_PATH}:${_SPARSE_LIB_PATH}:${LD_LIBRARY_PATH:-}"')
+        logger.info("[KVCache Offload] Added LD_LIBRARY_PATH for vllm: %s, %s", lib_path, sparse_lib_path)
+    elif engine == "vllm_ascend":
+        #  lmcache
+        lib_path = _sanitize_shell_path(os.getenv("LMCACHE_LIB_PATH", "/opt/ascend_env/lib/python3.11/site-packages/lmcache"))
+        env_commands.append(f'_LMCACHE_LIB_PATH={lib_path}')
+        env_commands.append('export LD_LIBRARY_PATH="${_LMCACHE_LIB_PATH}:${LD_LIBRARY_PATH:-}"')
+        logger.info("[KVCache Offload] Added LD_LIBRARY_PATH for vllm_ascend: %s", lib_path)
+
+    return env_commands
+
+
+def _build_qat_env_commands(engine) -> List[str]:
+    """构建 KVCache QAT 压缩特性的环境变量设置命令。
+
+    QAT (QuickAssist Technology) 是 Intel 的硬件压缩加速技术，
+    可用于压缩 KV 缓存以减少内存占用和传输开销。
+
+    注意:
+        - 当前仅 vllm (NVIDIA) 支持 QAT 压缩
+        - vllm_ascend 不支持，会自动禁用并打印警告
+
+    Args:
+        engine: 引擎类型
+
+    Returns:
+        List[str]: LMCACHE_QAT_ENABLED 设置命令列表
+
+    环境变量:
+        - LMCACHE_QAT: 是否启用 QAT 压缩 (true/false)
+    """
+    env_commands = []
+    if not get_qat_env():
+        return env_commands
+
+    if engine == "vllm":
+        env_commands.append('export LMCACHE_QAT_ENABLED=True')
+    else:
+        env_commands.append('export LMCACHE_QAT_ENABLED=False')
+        logger.warning("[KVCache Offload] QAT compression feature is not supported by the current engine %s, "
+                       "it has been automatically disabled", engine)
+    return env_commands
+
+
+def _build_pd_role_env_commands(engine: str, current_ip: str, network_interface: str) -> List[str]:
+    """构建 PD 分离部署的环境变量设置命令。
+
+    PD 分离 (Prefill-Decode Disaggregation) 是一种高级部署架构，
+    将 Prefill 和 Decode 阶段分离到不同节点，以优化资源利用率。
+
+    vllm (NVIDIA) 场景:
+        - 使用 NIXL 协议进行 KV 传输
+        - 设置 VLLM_NIXL_SIDE_CHANNEL_HOST
+
+    vllm_ascend 场景:
+        - 使用 HCCL 进行跨节点通信
+        - 需要设置多个网络接口环境变量
+        - 依赖 CANN 和 ATB 工具包
+
+    Args:
+        engine:           引擎类型 ('vllm' 或 'vllm_ascend')
+        current_ip:       当前节点 IP 地址
+        network_interface: 网络接口名称 (如 'eth0')
+
+    Returns:
+        List[str]: PD 分离所需的环境变量设置命令
+
+    环境变量:
+        - PD_ROLE: PD 角色 ('P' 或 'D')
+        - VLLM_LLMDD_RPC_PORT: LLMDataDist RPC 端口号
+    """
+    env_commands = []
+    if get_pd_role_env():
+        if engine == "vllm":
+            env_commands.append(f'export VLLM_NIXL_SIDE_CHANNEL_HOST={current_ip}')
+        elif engine == "vllm_ascend":
+            rpc_port = os.getenv('VLLM_LLMDD_RPC_PORT', "5569")
+            # CANN 环境初始化已由 _build_base_env_commands() 完成，此处不再重复
+            env_commands.extend([
+                f"export HCCL_IF_IP={current_ip}",
+                f"export GLOO_SOCKET_IFNAME={network_interface}",
+                f"export TP_SOCKET_IFNAME={network_interface}",
+                f"export HCCL_SOCKET_IFNAME={network_interface}",
+                "export OMP_PROC_BIND=false",
+                f"export OMP_NUM_THREADS={os.getenv('OMP_NUM_THREADS', '100')}",
+                "export VLLM_USE_V1=1",
+                "export LCCL_DETERMINISTIC=1",
+                "export HCCL_DETERMINISTIC=true",
+                "export CLOSE_MATMUL_K_SHIFT=1",
+                f"export VLLM_LLMDD_RPC_PORT={rpc_port}",
+                f"export PYTORCH_NPU_ALLOC_CONF=max_split_size_mb:{os.getenv('NPU_MAX_SPLIT_SIZE_MB', '256')}"
+            ])
+    return env_commands
+
+
+def _build_distributed_env_commands(params: Dict[str, Any], current_ip: str,
+                                    network_interface: str, engine: str) -> List[str]:
+    """构建分布式环境变量设置命令（扩展点）。
+
+    当前返回空列表，分布式 NCCL/HCCL 环境设置已在
+    _build_pd_role_env_commands 和 build_start_script 内部的
+    Ray 初始化块中处理。
+
+    根据 distributed_executor_backend（ray / dp_deployment）和引擎类型
+    （vllm / vllm_ascend）设置对应的网络通信环境变量。
+
+    Args:
+        params:            参数字典
+        current_ip:        当前节点 IP
+        network_interface: 网络接口名称
+        engine:            引擎类型
+
+    Returns:
+        List[str]: 环境变量设置命令列表
+    """
+    env_commands = []
+    if params.get("distributed", False):
+        backend = params.get("distributed_executor_backend")
+        if backend == "ray":
+            if engine == "vllm":
+                env_commands.extend([
+                    f"export VLLM_HOST_IP={shlex.quote(current_ip)}",
+                    f"export GLOO_SOCKET_IFNAME={shlex.quote(network_interface)}",
+                    f"export TP_SOCKET_IFNAME={shlex.quote(network_interface)}",
+                    f"export NCCL_SOCKET_IFNAME={shlex.quote(network_interface)}",
+                ])
+            elif engine == "vllm_ascend":
+                env_commands.extend([
+                    f"export HCCL_IF_IP={shlex.quote(current_ip)}",
+                    f"export GLOO_SOCKET_IFNAME={shlex.quote(network_interface)}",
+                    f"export TP_SOCKET_IFNAME={shlex.quote(network_interface)}",
+                    "export RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES=1",
+                    "export ASCEND_PROCESS_LOG_PATH=/tmp/ray_vllm010",
+                ])
+        elif backend == "dp_deployment":
+            if engine == "vllm":
+                env_commands.extend([
+                    f"export GLOO_SOCKET_IFNAME={shlex.quote(network_interface)}",
+                    f"export TP_SOCKET_IFNAME={shlex.quote(network_interface)}",
+                    f"export NCCL_SOCKET_IFNAME={shlex.quote(network_interface)}",
+                    f"export VLLM_NIXL_SIDE_CHANNEL_PORT={params.get('nixl_port', '')}",
+                    "export NCCL_IB_DISABLE=0",
+                    "export NCCL_CUMEM_ENABLE=0",
+                    "export NCCL_NET_GDR_LEVEL=SYS",
+                ])
+            elif engine == "vllm_ascend":
+                env_commands.extend([
+                    f"export HCCL_IF_IP={shlex.quote(current_ip)}",
+                    f"export GLOO_SOCKET_IFNAME={shlex.quote(network_interface)}",
+                    f"export TP_SOCKET_IFNAME={shlex.quote(network_interface)}",
+                    f"export HCCL_SOCKET_IFNAME={shlex.quote(network_interface)}",
+                    "export OMP_PROC_BIND=false",
+                    f"export OMP_NUM_THREADS={os.getenv('OMP_NUM_THREADS', '10')}",
+                    "export HCCL_BUFFSIZE=1024",
+                    "export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True",
+                    "export ASCEND_CUSTOM_OPP_PATH=/usr/local/Ascend/ascend-toolkit/"
+                    "latest/opp/deepseek-v32/vendors/customize:${ASCEND_CUSTOM_OPP_PATH}",
+                    "export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/"
+                    "opp/vendors/customize/op_api/lib/:${LD_LIBRARY_PATH}",
+                ])
+    return env_commands
+
+
+def _build_deepseek_fp8_env_commands(params: Dict[str, Any], engine: str) -> List[str]:
+    """构建 DeepSeek FP8 模型所需的环境变量命令。
+
+    仅在满足以下条件时设置 DeepSeek FP8 专属环境变量：
+    1. 引擎类型为 vllm_ascend
+    2. 模型路径存在
+    3. 模型是 DeepSeek 系列 FP8 模型
+
+    Args:
+        params: 参数字典，包含 model_path 等信息
+        engine: 引擎类型
+
+    Returns:
+        List[str]: 环境变量导出命令列表
+    """
+    env_commands = []
+    model_path = params.get("model_path")
+
+    if engine == "vllm_ascend" and model_path and is_deepseek_series_fp8(model_path):
+        env_commands.extend([
+            "export VLLM_ASCEND_ENABLE_NZ=0",
+            "export HCCL_OP_EXPANSION_MODE=AIV",
+            "export VLLM_ASCEND_ENABLE_MLAPO=1",
+            "export VLLM_ASCEND_BALANCE_SCHEDULING=1"
+        ])
+        logger.info("[DeepSeek FP8] Set environment variables for DeepSeek FP8 model")
+
+    return env_commands
+
+
+def _build_ascend910_9362_env_commands(params: Dict[str, Any], engine: str) -> List[str]:
+    """构建 Ascend910_9362 设备特定环境变量命令。
+
+    当满足以下条件时，添加特定的环境变量：
+    1. 通过 torch_npu 检测设备名称为 Ascend910_9362
+    2. 模型结构为 DeepseekV32ForCausalLM 或 DeepseekV3ForCausalLM
+    3. 引擎为 vllm_ascend
+    4. 不是 dp_deployment 分布式模式（避免与 _build_distributed_env_commands 重复）
+
+    Args:
+        params: 参数字典
+        engine: 引擎类型
+
+    Returns:
+        List[str]: 环境变量导出命令列表
+    """
+    env_commands = []
+    distributed_backend = params.get("distributed_executor_backend")
+
+    # 从硬件信息 JSON 或环境变量中获取设备名称（不依赖 torch_npu SDK）
+    device_name = None
+    try:
+        from core.hardware_detect import detect_hardware
+        hw = detect_hardware()
+        if hw.get("details"):
+            device_name = hw["details"][0].get("name")
+        if not device_name:
+            device_name = os.getenv("WINGS_DEVICE_NAME", "").strip() or None
+        if device_name:
+            logger.info("[Ascend910_9362] Detected device from hardware info: %s", device_name)
+    except Exception as e:
+        logger.warning("[Ascend910_9362] Failed to get device name: %s", e)
+
+    if device_name != "Ascend910_9362":
+        return env_commands
+
+    if engine != "vllm_ascend":
+        return env_commands
+
+    if distributed_backend == "dp_deployment":
+        return env_commands
+
+    if not params.get("model_path"):
+        return env_commands
+
+    model_info = ModelIdentifier(
+        params.get("model_name"),
+        params.get("model_path"),
+        params.get("model_type")
+    )
+
+    if model_info.model_architecture in ["DeepseekV32ForCausalLM", "DeepseekV3ForCausalLM"]:
+        env_commands.extend([
+            "export OMP_PROC_BIND=false",
+            "export OMP_NUM_THREADS=10",
+            "export HCCL_BUFFSIZE=1024"
+        ])
+        logger.info(f"[Ascend910_9362] Set environment variables for {model_info.model_architecture}")
+
+    return env_commands
+
+
+def _build_env_commands(params: Dict[str, Any], current_ip: str, network_interface: str, root: str) -> List[str]:
+    """组装完整的环境变量设置命令列表。
+
+    按顺序调用各子模块构建环境设置，创建完整的环境初始化流程：
+    1. 基础环境（CANN/ATB 工具包）
+    2. KVCache Offload 环境
+    3. QAT 压缩环境
+    4. PD 分离环境
+    5. 分布式环境（扩展点）
+
+    Args:
+        params:            参数字典，包含 engine 等配置
+        current_ip:        当前节点 IP 地址
+        network_interface: 网络接口名称
+        root:              项目根目录
+
+    Returns:
+        List[str]: 所有环境变量设置命令的有序列表
+    """
+    engine = params.get("engine")
+    env_commands = []
+
+    env_commands.extend(_build_base_env_commands(params, engine, root))
+    env_commands.extend(_build_cache_env_commands(engine))
+    env_commands.extend(_build_qat_env_commands(engine))
+    env_commands.extend(_build_pd_role_env_commands(engine, current_ip, network_interface))
+    env_commands.extend(_build_distributed_env_commands(params, current_ip, network_interface, engine))
+    env_commands.extend(_build_deepseek_fp8_env_commands(params, engine))
+    env_commands.extend(_build_ascend910_9362_env_commands(params, engine))
+
+    return env_commands
+
+
+def _build_vllm_cmd_parts(params: Dict[str, Any]) -> str:
+    """构建 vLLM 核心启动命令字符串。
+
+    将 engine_config 字典转换为 vLLM CLI 参数格式：
+    python3 -m vllm.entrypoints.openai.api_server --arg1 value1 --arg2 value2 ...
+
+    参数转换规则：
+    - 参数名: snake_case → kebab-case (如 tensor_parallel_size → --tensor-parallel-size)
+    - 布尔值: True → 仅输出 flag (如 --enable-prefix-caching)
+    - 布尔值: False → 跳过
+    - 空字符串: 跳过，避免生成空参数
+    - JSON 字典: 用单引号包裹 (如 --kv-transfer-config '{...}')
+    - 其他值: 直接转为字符串
+
+    特殊处理：
+    - use_kunlun_atb: 内部参数，不传递给 vLLM CLI
+    - max_num_batched_tokens: 必须为正整数，否则跳过
+
+    Args:
+        params: 参数字典，必须包含 engine_config 字典
+
+    Returns:
+        str: 完整的 vLLM 启动命令字符串
+
+    示例输出：
+        python3 -m vllm.entrypoints.openai.api_server \\
+            --model /weights --host 0.0.0.0 --port 17000 \\
+            --tensor-parallel-size 4 --trust-remote-code
+    """
+    engine_config = params.get("engine_config", {})
+    # llm
+    if "use_kunlun_atb" in engine_config:
+        engine_config.pop("use_kunlun_atb")
+    # if params.get("distributed"):
+        # raise ValueError("Distributed mode is disabled in sidecar launcher MVP.")
+
+    # vllm/vllm-openai image guarantees python3, while python may be absent.
+    cmd_parts = ["python3", "-m", "vllm.entrypoints.openai.api_server"]
+
+    for arg, value in engine_config.items():
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            # Skip empty-string values to avoid generating broken args like:
+            # --quantization  --gpu-memory-utilization ...
+            continue
+        if arg == "max_num_batched_tokens":
+            try:
+                if int(value) <= 0:
+                    logger.warning(
+                        "Skip invalid max_num_batched_tokens=%s; vLLM requires >=1",
+                        value,
+                    )
+                    continue
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Skip non-integer max_num_batched_tokens=%s",
+                    value,
+                )
+                continue
+
+        arg_name = f"--{arg.replace('_', '-')}"
+        if isinstance(value, bool):
+            if value:
+                cmd_parts.append(arg_name)
+        elif isinstance(value, str) and value.strip().startswith('{') and value.strip().endswith('}'):
+            cmd_parts.extend([arg_name, f"'{value}'"])
+        else:
+            # 对非 JSON 值进行 shell 安全转义，防止命令注入
+            cmd_parts.extend([arg_name, shlex.quote(str(value))])
+
+    return " ".join(cmd_parts)
+
+
+# ── 推测解码 (Speculative Decoding) ──────────────────────────────────────
+
+def _handle_draft_model_case(params: Dict[str, Any], config: List[str]) -> None:
+    """处理有草稿模型的推测解码配置"""
+    draft_path = params.get("speculative_decode_model_path", "")
+    # 对路径中的双引号和反斜杠进行 JSON 转义，防止 JSON-in-shell 注入
+    safe_path = draft_path.replace('\\', '\\\\').replace('"', '\\"')
+    config.append(f'"model": "{safe_path}"')
+    config.append('"draft_tensor_parallel_size": 1')
+    draft_model_info = ModelIdentifierDraft(params.get("speculative_decode_model_path"))
+
+    if 'eagle3' in draft_model_info.draft_model_architecture.lower():
+        logger.info('--- Using the Eagle3 speculative decoding approach ---')
+        config.append('"method" : "eagle3"')
+        config.append('"num_speculative_tokens": 3')
+    else:
+        logger.info('--- Using the draft model speculative decoding approach ---')
+        config.append('"method" : "draft_model"')
+        config.append('"num_speculative_tokens": 5')
+        config.append('"disable_padded_drafter_batch": true')
+
+
+def _handle_mtp_case(model_info: ModelIdentifier, mtp_support_models: List[Any],
+                     mtp_types: List[str], config: List[str]) -> None:
+    """处理 MTP 推测解码配置"""
+    logger.info('--- Using the MTP speculative decoding approach ---')
+
+    for i, model_group in enumerate(mtp_support_models):
+        if model_info.model_architecture in model_group:
+            config.append(f'"method": "{mtp_types[i]}"')
+            break
+    config.append('"num_speculative_tokens": 1')
+
+
+def _handle_suffix_case(config: List[str]) -> None:
+    """处理 suffix 推测解码配置"""
+    logger.info('--- Using the suffix speculative decoding approach ---')
+    config.append('"method" : "suffix"')
+    config.append('"num_speculative_tokens": 5')
+    config.append('"suffix_decoding_max_cached_requests": 1000')
+
+
+def _build_speculative_cmd(params: Dict[str, Any], engine: str) -> str:
+    """推测解码方案的自动选取。
+
+    根据模型架构自动选择最优的推测解码策略：
+    1. 如有草稿模型 → eagle3 / draft_model
+    2. Qwen3NextForCausalLM + vllm_ascend → suffix
+    3. DeepSeek/Qwen3Next/Glm4Moe → MTP
+    4. 其他 → suffix
+
+    Args:
+        params: 参数字典
+        engine: 引擎类型 ('vllm' 或 'vllm_ascend')
+
+    Returns:
+        str: --speculative-config 参数字符串，未启用时返回空字符串
+    """
+    model_info = ModelIdentifier(params.get("model_name"),
+                                 params.get("model_path"),
+                                 params.get("model_type"))
+    mtp_types = [
+        "deepseek_mtp",
+        "qwen3_next_mtp",
+        "glm4_moe_mtp",
+    ]
+    mtp_support_models = [
+        ["DeepseekV3ForCausalLM", "DeepseekV32ForCausalLM"],
+        ["Qwen3NextForCausalLM"],
+        ["Glm4MoeForCausalLM"]
+    ]
+
+    speculative_config_temp = []
+
+    if engine not in ("vllm", "vllm_ascend"):
+        return ""
+
+    if params.get("speculative_decode_model_path"):
+        _handle_draft_model_case(params, speculative_config_temp)
+        return " --speculative-config '{" + ", ".join(speculative_config_temp) + "}'"
+
+    # Qwen3NextForCausalLM + vllm_ascend 使用 suffix
+    if model_info.model_architecture == "Qwen3NextForCausalLM" and engine == "vllm_ascend":
+        _handle_suffix_case(speculative_config_temp)
+        return " --speculative-config '{" + ", ".join(speculative_config_temp) + "}'"
+
+    if any(model_info.model_architecture in group for group in mtp_support_models):
+        _handle_mtp_case(model_info, mtp_support_models, mtp_types, speculative_config_temp)
+        return " --speculative-config '{" + ", ".join(speculative_config_temp) + "}'"
+
+    _handle_suffix_case(speculative_config_temp)
+    return " --speculative-config '{" + ", ".join(speculative_config_temp) + "}'"
+
+
+# ── Sparse KV ────────────────────────────────────────────────────────────
+
+def _build_sparse_config(params: Dict[str, Any], config: List[str]) -> str:
+    """构建 sparse-config 参数"""
+    config.append('"enable_sparse": true')
+    config.append('"sparse_algo_type": "BMSA"')
+    config.append(f'"lc_sparse_threshold": {params.get("lc_sparse_threshold")}')
+    config.append(f'"total_budget": {params.get("total_budget")}')
+    return " --sparse-config '{" + ", ".join(config) + "}'"
+
+
+def _build_kv_transfer_config(params: Dict[str, Any], config: List[str]) -> str:
+    """构建 kv-transfer-config 参数"""
+    config.append('"kv_connector" : "SparseConnector"')
+    config.append('"kv_role" : "kv_both"')
+    config.append('"kv_connector_module_path": "vsparse.connectors.sparse_connector"')
+    config.append(
+        '"kv_connector_extra_config": {"sparse_connectors": '
+        '[{"connector_name": "LocalStoreKVStore", "connector_config": {'
+        f'"capacity": {params.get("local_kvstore_capacity")}'
+        '}}]}')
+    return " --kv-transfer-config '{" + ", ".join(config) + "}'"
+
+
+def _build_sparse_cmd(params: Dict[str, Any], engine: str) -> str:
+    """构建 Sparse KV 完整命令参数。
+
+    仅 vllm (NVIDIA) 支持 Sparse KV 特性。
+    当前 SparseKV 不兼容 CUDA Graph，需追加 --enforce-eager。
+
+    Args:
+        params: 参数字典
+        engine: 引擎类型
+
+    Returns:
+        str: sparse-config + kv-transfer-config + --enforce-eager，未启用时返回空字符串
+    """
+    if engine not in ("vllm",):
+        return ""
+    config_sparse_tmp = []
+    config_sparse = _build_sparse_config(params, config_sparse_tmp)
+    config_kv_transfer_tmp = []
+    config_kv_transfer = _build_kv_transfer_config(params, config_kv_transfer_tmp)
+    return config_sparse + config_kv_transfer + " --enforce-eager"
+
+
+def _build_vllm_command(params: Dict[str, Any]) -> str:
+    """构建完整的 vLLM 服务启动命令（含环境设置）。
+
+    将环境变量设置和核心启动命令组合为单行命令：
+    source env.sh && export VAR=val && python3 -m vllm...
+
+    Args:
+        params: 服务器参数字典
+
+    Returns:
+        str: 完整的 vLLM 服务启动命令字符串
+
+    注意:
+        - 此函数主要用于单机模式
+        - 分布式模式应使用 build_start_script()
+    """
+    current_ip = get_local_ip()
+    # Skip netifaces auto-detection to avoid dependency
+    network_interface = os.getenv("NETWORK_INTERFACE", os.getenv("GLOO_SOCKET_IFNAME", "eth0"))
+
+    # Build environment variable commands
+    env_commands = _build_env_commands(
+        params, current_ip, network_interface, root_dir
+    )
+
+    # Build main command
+    command_str = _build_vllm_cmd_parts(params)
+
+    # Combine full command
+    if env_commands:
+        return " && ".join(env_commands) + " && " + command_str
+    return command_str
+
+
+def build_start_command(params: Dict[str, Any]) -> str:
+    """为 launcher 生成 vLLM 启动命令字符串（旧版接口）。
+
+    此函数仅执行命令拼装，不启动任何子进程。
+    返回的命令不包含环境变量设置，适合简单场景。
+
+    Args:
+        params: 参数字典
+
+    Returns:
+        str: vLLM 启动命令字符串
+
+    Raises:
+        ValueError: 分布式模式不支持此简化接口
+
+    建议:
+        推荐使用 build_start_script() 获取完整脚本
+    """
+    if params.get("distributed", False):
+        raise ValueError("Launcher MVP does not support distributed mode for vLLM.")
+    return _build_vllm_cmd_parts(params)
+
+
+def build_start_script(params: Dict[str, Any]) -> str:
+    """生成完整的 bash 启动脚本体（start_command.sh 内容，不含 shebang）。
+
+    这是 vLLM 适配器的主要入口，生成的脚本将写入共享卷，
+    由 engine 容器读取并执行。
+
+    支持的部署模式:
+
+    1. 单机 vllm:
+       exec python3 -m vllm.entrypoints.openai.api_server ...
+
+    2. 单机 vllm_ascend:
+       source /usr/local/Ascend/.../set_env.sh  # 加载 CANN 环境
+       exec python3 -m vllm.entrypoints.openai.api_server ...
+
+    3. Ray 分布式 (rank0 - head 节点):
+       [Ascend 环境设置]
+       [Triton NPU 驱动补丁]  # vllm_ascend 特有
+       export VLLM_HOST_IP=...
+       ray start --head --port=6379 ...
+       # 等待 worker 加入
+       exec python3 -m vllm... --distributed-executor-backend ray
+
+    4. Ray 分布式 (rank>0 - worker 节点):
+       [Ascend 环境设置]
+       [Triton NPU 驱动补丁]
+       # 探测并连接 head IP
+       exec ray start --address=$HEAD_IP:6379 --block
+
+    5. DP 分布式 (dp_deployment 后端):
+       exec python3 -m vllm... --data-parallel-address ... --data-parallel-rank ...
+
+    Args:
+        params: 参数字典，包含以下关键字段:
+            - engine: 'vllm' 或 'vllm_ascend'
+            - engine_config: 引擎配置参数
+            - distributed: 是否分布式
+            - nnodes: 节点数
+            - node_rank: 当前节点编号
+            - distributed_executor_backend: 'ray' 或 'dp_deployment'
+            - head_node_addr: head 节点地址
+
+    Returns:
+        str: 完整的 bash 脚本体（不含 shebang）
+
+    环境变量:
+        - NODE_IPS: 所有节点 IP 列表（逗号分隔）
+        - RAY_PORT: Ray head 端口号，默认 6379
+        - VLLM_DP_RPC_PORT: DP 模式 RPC 端口，默认 13355
+    """
+    engine = params.get("engine", "vllm")
+    cmd = _build_vllm_cmd_parts(params)
+    is_distributed = params.get("distributed", False)
+    node_rank = params.get("node_rank", 0)
+    nnodes = params.get("nnodes", 1)
+    backend = params.get("distributed_executor_backend", "ray")
+    head_addr = params.get("head_node_addr", "infer-0.infer-hl")
+    # NODE_IPS: params["nodes"] 优先（由 config_loader / Master 注入），其次环境变量
+    node_ips = params.get("nodes", os.getenv("NODE_IPS", head_addr))
+    # ray_head_port: params 优先（config_loader 从 distributed_config.json 注入 28020），
+    # 其次环境变量，最后回退到 28020（与 wings 对齐）
+    ray_port = str(params.get("ray_head_port", os.getenv("RAY_PORT", "28020")))
+
+    # ── 公共环境命令链（对齐 A 的 _build_env_commands 调用链） ─────────
+    # sidecar 容器无 GPU/NPU，使用环境变量代替 netifaces 探测网络接口
+    current_ip = os.getenv("POD_IP", get_local_ip())
+    net_if = os.getenv("NETWORK_INTERFACE", os.getenv("GLOO_SOCKET_IFNAME", "eth0"))
+    common_env_cmds: List[str] = []
+    common_env_cmds.extend(_build_base_env_commands(params, engine, root_dir))
+    common_env_cmds.extend(_build_cache_env_commands(engine))
+    common_env_cmds.extend(_build_qat_env_commands(engine))
+    common_env_cmds.extend(_build_pd_role_env_commands(engine, current_ip, net_if))
+
+    if is_distributed and nnodes > 1:
+        script_parts = list(common_env_cmds)
+        is_ascend = (engine == "vllm_ascend")
+
+        if backend == "ray":
+            # CANN 环境初始化已由 _build_base_env_commands() 在 common_env_cmds 中完成，
+            # 无需在此重复 source set_env.sh（修复 P-C-4 重复初始化问题）。
+            if is_ascend:
+                # ── Patch Triton driver for Ascend NPU (>= 0.14 only) ──────
+                # vllm-ascend >= 0.14 的 worker.py 无条件导入 torch_npu._inductor，
+                # 触发 triton.runtime.driver._create_driver()。
+                # Ascend NPU 无 Triton 后端 → "0 active drivers" RuntimeError。
+                # 低版本不存在此问题，跳过补丁。
+                if _need_triton_patch_and_eager(engine):
+                    triton_patch_block = [
+                        "# Patch triton driver.py: Ascend NPU has no Triton backend, return dummy driver",
+                        "python3 << 'TRITON_PATCH_EOF'",
+                        "try:",
+                        "    import triton.runtime, os",
+                        "    drv_path = os.path.join(os.path.dirname(triton.runtime.__file__), 'driver.py')",
+                        "    with open(drv_path) as f:",
+                        "        src = f.read()",
+                        "    if 'raise RuntimeError' in src and 'PATCHED_NPU' not in src:",
+                        "        patch = '''",
+                        "        # PATCHED_NPU: Ascend NPU has no Triton backend, provide dummy driver",
+                        "        class _NpuDummyDrv:",
+                        "            def get_current_target(self):",
+                        "                import types; return types.SimpleNamespace(backend='npu', arch='Ascend910B', warp_size=0)",
+                        "            def get_current_device(self): return 0",
+                        "            def get_device_capability(self, *a): return (0, 0)",
+                        "            def get_device_properties(self, device=0):",
+                        "                try:",
+                        "                    import torch_npu; n = torch_npu.npu.get_device_name(device); c = 20 if '910B' in str(n) else 30",
+                        "                except Exception: c = 20",
+                        "                return {'num_aicore': c, 'num_vectorcore': c}",
+                        "            def __getattr__(self, name): return _NpuDummyDrv()",
+                        "            def __call__(self, *a, **k): return self",
+                        "            def __repr__(self): return '<NpuDummy>'",
+                        "            def __int__(self): return 0",
+                        "            def __bool__(self): return False",
+                        "        return _NpuDummyDrv()'''",
+                        "        src = src.replace(",
+                        '            \'raise RuntimeError(f"{len(active_drivers)} active drivers ({active_drivers}). There should only be one.")\',',
+                        "            patch.strip()",
+                        "        )",
+                        "        with open(drv_path, 'w') as f:",
+                        "            f.write(src)",
+                        "        print('[triton-patch] Patched', drv_path, 'for Ascend NPU')",
+                        "    else:",
+                        "        print('[triton-patch] Already patched or not needed')",
+                        "except Exception as e:",
+                        "    print(f'[triton-patch] Skip: {e}')",
+                        "TRITON_PATCH_EOF",
+                    ]
+                    script_parts.extend(triton_patch_block)
+                    script_parts.append("")
+
+            if node_rank == 0:
+                # Detect this node's IP for Ray placement group scheduling.
+                # 'ip' command is NOT available in vllm-ascend container, so use
+                # POD_IP from Kubernetes Downward API (status.podIP = node IP for hostNetwork pods)
+                # with Python UDP trick as fallback.
+                if is_ascend:
+                    script_parts.append("export VLLM_HOST_IP=${POD_IP:-$(python3 -c \"import socket;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.connect(('8.8.8.8',80));print(s.getsockname()[0]);s.close()\" 2>/dev/null || hostname -i)}")
+                else:
+                    # For NV with hostNetwork, POD_IP = node's external IP (routable between nodes).
+                    # 'hostname -i' returns the container bridge IP (172.17.x.x), NOT suitable for Ray.
+                    script_parts.append("export VLLM_HOST_IP=${POD_IP:-$(python3 -c \"import socket;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.connect(('8.8.8.8',80));print(s.getsockname()[0]);s.close()\" 2>/dev/null || hostname -i)}")
+                if is_ascend:
+                    # Ascend: use HCCL instead of NCCL
+                    script_parts.append("export HCCL_WHITELIST_DISABLE=1")
+                    script_parts.append("export HCCL_IF_IP=$VLLM_HOST_IP")
+                    # Detect default-route interface from /proc/net/route
+                    # (ip command unavailable in vllm-ascend image; awk is universally present)
+                    script_parts.append("export HCCL_SOCKET_IFNAME=$(awk '$2==\"00000000\"{print $1;exit}' /proc/net/route 2>/dev/null || echo eth0)")
+                    script_parts.append("export TP_SOCKET_IFNAME=$(awk '$2==\"00000000\"{print $1;exit}' /proc/net/route 2>/dev/null || echo eth0)")
+                    script_parts.append("export RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES=1")
+                    script_parts.append("export ASCEND_PROCESS_LOG_PATH=/tmp/ray_vllm010")
+                else:
+                    script_parts.append(f"export NCCL_SOCKET_IFNAME={os.getenv('NCCL_SOCKET_IFNAME', 'eth0')}")
+                    script_parts.append(f"export TP_SOCKET_IFNAME={os.getenv('NCCL_SOCKET_IFNAME', 'eth0')}")
+                script_parts.append("export GLOO_SOCKET_IFNAME=$(awk '$2==\"00000000\"{print $1;exit}' /proc/net/route 2>/dev/null || echo eth0)\n")
+                # Ray 资源声明：根据引擎版本自动适配
+                # vllm_ascend >= 0.14: --resources='{"NPU": 1}'
+                # vllm_ascend < 0.14:  --num-gpus={tp_size}（兼容 V1）
+                # vllm (NV):           --num-gpus=1
+                ray_head_resource = _get_ray_resource_flag(engine, params)
+                script_parts.append(f"ray start --head --port={ray_port} --node-ip-address=$VLLM_HOST_IP {ray_head_resource} --dashboard-host=0.0.0.0\n")
+                script_parts.append("for i in $(seq 1 60); do")
+                script_parts.append("  COUNT=$(python3 -c \"import ray; ray.init(address='auto',ignore_reinit_error=True); print(len([n for n in ray.nodes() if n['alive']])); ray.shutdown()\" 2>/dev/null || echo 0)")
+                script_parts.append("  [ \"$COUNT\" -ge \"2\" ] && break")
+                script_parts.append("  sleep 5")
+                script_parts.append("done\n")
+                # Ascend >= 0.14: --enforce-eager bypasses Triton compilation
+                # (Triton NPU driver detection fails in k3s containers)
+                # Ascend < 0.14: 无此问题，不加 --enforce-eager
+                eager_flag = " --enforce-eager" if _need_triton_patch_and_eager(engine) else ""
+                # 推测解码 & Sparse KV
+                speculative_extra = ""
+                sparse_extra = ""
+                if params.get("enable_speculative_decode"):
+                    speculative_extra = _build_speculative_cmd(params, engine)
+                if params.get("enable_sparse"):
+                    sparse_extra = _build_sparse_cmd(params, engine)
+                # Qwen3MoeForCausalLM pipeline-parallel 支持
+                ray_pp_extra = ""
+                model_info_ray = ModelIdentifier(
+                    params.get("model_name"), params.get("model_path"), params.get("model_type"))
+                if getattr(model_info_ray, "model_architecture", None) == "Qwen3MoeForCausalLM":
+                    nodes_list = node_ips.split(",") if node_ips else []
+                    num_nodes = len(nodes_list) if nodes_list else 1
+                    tp_size = params.get("device_count", 1)
+                    ray_pp_extra = f" --pipeline-parallel-size {num_nodes} --tensor-parallel-size {tp_size}"
+                    logger.info(f"[vllm_ascend ray] Set parallel parameters: "
+                                f"pipeline_parallel_size={num_nodes}, tensor_parallel_size={tp_size}")
+                script_parts.append(f"exec {cmd}{eager_flag}{speculative_extra}{sparse_extra}{ray_pp_extra} --distributed-executor-backend ray")
+            else:
+                if is_ascend:
+                    script_parts.append("export HCCL_WHITELIST_DISABLE=1")
+                    # Dynamically detect Ray head IP from NODE_IPS list
+                    # (pod-to-node mapping is non-deterministic with StatefulSet Parallel mode)
+                    node_ips_bash = node_ips  # e.g. "192.168.1.100,192.168.1.101"
+                    script_parts.append(f"NODE_IPS_LIST=\"{node_ips_bash}\"")
+                    script_parts.append("HEAD_IP=\"\"")
+                    script_parts.append(f"echo \"[worker] Scanning NODE_IPS for Ray head on port {ray_port}...\"")
+                    script_parts.append("for attempt in $(seq 1 120); do")
+                    script_parts.append("  for ip in $(echo $NODE_IPS_LIST | tr ',' ' '); do")
+                    script_parts.append(f"    if python3 -c \"import socket; s=socket.socket(); s.settimeout(2); s.connect(('$ip',{ray_port})); s.close()\" 2>/dev/null; then")
+                    script_parts.append("      HEAD_IP=$ip")
+                    script_parts.append(f"      echo \"[worker] Found Ray head at $HEAD_IP:{ray_port}\"")
+                    script_parts.append("      break 2")
+                    script_parts.append("    fi")
+                    script_parts.append("  done")
+                    script_parts.append("  sleep 5")
+                    script_parts.append("done")
+                    script_parts.append("if [ -z \"$HEAD_IP\" ]; then echo '[worker] ERROR: Could not find Ray head'; exit 1; fi\n")
+                    # Set HCCL env using discovered head IP
+                    script_parts.append(f"export HCCL_IF_IP=$(python3 -c \"import socket; s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); s.connect(('$HEAD_IP',{ray_port})); print(s.getsockname()[0]); s.close()\" 2>/dev/null || hostname -i)")
+                    script_parts.append("export HCCL_SOCKET_IFNAME=$(awk '$2==\"00000000\"{print $1;exit}' /proc/net/route 2>/dev/null || echo eth0)")
+                    script_parts.append("export TP_SOCKET_IFNAME=$(awk '$2==\"00000000\"{print $1;exit}' /proc/net/route 2>/dev/null || echo eth0)")
+                    script_parts.append("export RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES=1")
+                    script_parts.append("export ASCEND_PROCESS_LOG_PATH=/tmp/ray_vllm010")
+                    # Worker also needs VLLM_HOST_IP for Ray node matching
+                    script_parts.append("export VLLM_HOST_IP=${POD_IP:-$(python3 -c \"import socket;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.connect(('8.8.8.8',80));print(s.getsockname()[0]);s.close()\" 2>/dev/null || hostname -i)}")
+                else:
+                    script_parts.append(f"export NCCL_SOCKET_IFNAME={os.getenv('NCCL_SOCKET_IFNAME', 'eth0')}")
+                    script_parts.append(f"export TP_SOCKET_IFNAME={os.getenv('NCCL_SOCKET_IFNAME', 'eth0')}")
+                    # Worker's own routable IP (for Ray node-ip-address)
+                    script_parts.append("export VLLM_HOST_IP=${POD_IP:-$(python3 -c \"import socket;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.connect(('8.8.8.8',80));print(s.getsockname()[0]);s.close()\" 2>/dev/null || hostname -i)}")
+                    script_parts.append("for i in $(seq 1 60); do")
+                    script_parts.append(f"  python3 -c \"import socket; s=socket.socket(); s.settimeout(2); s.connect(('{head_addr}',{ray_port})); s.close()\" 2>/dev/null && break")
+                    script_parts.append("  sleep 5")
+                    script_parts.append("done")
+                    script_parts.append(f"HEAD_IP=\"{head_addr}\"")
+                script_parts.append("export GLOO_SOCKET_IFNAME=$(awk '$2==\"00000000\"{print $1;exit}' /proc/net/route 2>/dev/null || echo eth0)\n")
+                # Ray 资源声明：根据引擎版本自动适配（与 head 节点一致）
+                ray_worker_resource = _get_ray_resource_flag(engine, params)
+                script_parts.append(f"exec ray start --address=$HEAD_IP:{ray_port} --node-ip-address=$VLLM_HOST_IP {ray_worker_resource} --block")
+        else: # dp_deployment
+            # rpc_port: params 优先（config_loader 从 distributed_config.json 注入），其次环境变量
+            dp_rpc_port = str(params.get("rpc_port", os.getenv('VLLM_DP_RPC_PORT', '13355')))
+
+            # DeepseekV3ForCausalLM / DeepseekV32ForCausalLM 在 vllm_ascend DP 模式下使用专用并行参数
+            model_info = ModelIdentifier(
+                params.get("model_name"), params.get("model_path"), params.get("model_type"))
+            if (model_info.model_architecture in ["DeepseekV3ForCausalLM", "DeepseekV32ForCausalLM"]
+                    and engine == "vllm_ascend"):
+                dp_size = "4"
+                dp_size_local = "2"
+                dp_start_rank = "2" if node_rank != 0 else "0"
+            else:
+                dp_size = str(nnodes)
+                dp_size_local = "1"
+                dp_start_rank = str(node_rank)
+
+            # dp_deployment 模式分布式通信环境变量（对齐 A）
+            net_if = os.getenv("NETWORK_INTERFACE", os.getenv("GLOO_SOCKET_IFNAME", "eth0"))
+            if is_ascend:
+                script_parts.extend([
+                    f"export HCCL_IF_IP=${{POD_IP:-$(python3 -c \"import socket;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.connect(('8.8.8.8',80));print(s.getsockname()[0]);s.close()\" 2>/dev/null || hostname -i)}}",
+                    f"export GLOO_SOCKET_IFNAME={net_if}",
+                    f"export TP_SOCKET_IFNAME={net_if}",
+                    f"export HCCL_SOCKET_IFNAME={net_if}",
+                    "export OMP_PROC_BIND=false",
+                    f"export OMP_NUM_THREADS={os.getenv('OMP_NUM_THREADS', '100')}",
+                    "export HCCL_BUFFSIZE=1024",
+                    "export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True",
+                    "export ASCEND_CUSTOM_OPP_PATH=/usr/local/Ascend/ascend-toolkit/"
+                    "latest/opp/deepseek-v32/vendors/customize:${ASCEND_CUSTOM_OPP_PATH}",
+                    "export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/"
+                    "opp/vendors/customize/op_api/lib/:${LD_LIBRARY_PATH}",
+                ])
+            else:
+                script_parts.extend([
+                    f"export GLOO_SOCKET_IFNAME={net_if}",
+                    f"export TP_SOCKET_IFNAME={net_if}",
+                    f"export NCCL_SOCKET_IFNAME={net_if}",
+                    f"export VLLM_NIXL_SIDE_CHANNEL_PORT={params.get('nixl_port', os.getenv('VLLM_NIXL_SIDE_CHANNEL_PORT', '12345'))}",
+                    "export NCCL_IB_DISABLE=0",
+                    "export NCCL_CUMEM_ENABLE=0",
+                    "export NCCL_NET_GDR_LEVEL=SYS",
+                ])
+
+            # L3: dp_deployment 使用 `vllm serve <model>` 入口（对齐 V2）
+            _model_match = re.search(r"--model\s+('(?:[^']*)'|\S+)", cmd)
+            if _model_match:
+                _model_val = _model_match.group(1)
+                # 去掉 --model 参数（已成为 vllm serve 的位置参数）
+                dp_cmd = re.sub(r"\s*--model\s+(?:'[^']*'|\S+)", "", cmd)
+                # 替换入口命令: python3 -m ... → vllm serve <model>
+                dp_cmd = re.sub(
+                    r"^python3\s+-m\s+vllm\.entrypoints\.openai\.api_server",
+                    f"vllm serve {_model_val}",
+                    dp_cmd,
+                )
+            else:
+                dp_cmd = cmd  # fallback: 保持原命令
+
+            if node_rank == 0:
+                script_parts.append(f"exec {dp_cmd} --data-parallel-address {head_addr} --data-parallel-rpc-port {dp_rpc_port} --data-parallel-size {dp_size} --data-parallel-size-local {dp_size_local} --data-parallel-external-lb --data-parallel-rank 0")
+            else:
+                # 非 rank-0 节点不对外服务，移除 --host / --port
+                dp_cmd_headless = re.sub(r"\s*--host\s+(?:'[^']*'|\S+)", "", dp_cmd)
+                dp_cmd_headless = re.sub(r"\s*--port\s+(?:'[^']*'|\S+)", "", dp_cmd_headless)
+                script_parts.append(f"exec {dp_cmd_headless} --data-parallel-address {head_addr} --data-parallel-rpc-port {dp_rpc_port} --data-parallel-size {dp_size} --data-parallel-size-local {dp_size_local} --data-parallel-external-lb --headless --data-parallel-start-rank {dp_start_rank}")
+        return "\n".join(script_parts) + "\n"
+
+    if engine == "vllm_ascend":
+        # CANN 环境初始化已由 _build_base_env_commands() 在 common_env_cmds 中完成，
+        # 无需在此重复 source set_env.sh（修复 P-C-4 重复初始化问题）。
+        env_prefix = "\n".join(common_env_cmds) + "\n" if common_env_cmds else ""
+        # 单机模式：推测解码 & Sparse KV
+        speculative_extra = ""
+        sparse_extra = ""
+        if params.get("enable_speculative_decode"):
+            speculative_extra = _build_speculative_cmd(params, engine)
+        if params.get("enable_sparse"):
+            sparse_extra = _build_sparse_cmd(params, engine)
+        return env_prefix + f"exec {cmd}{speculative_extra}{sparse_extra}\n"
+
+    env_prefix = "\n".join(common_env_cmds) + "\n" if common_env_cmds else ""
+    # 单机模式：推测解码 & Sparse KV
+    speculative_extra = ""
+    sparse_extra = ""
+    if params.get("enable_speculative_decode"):
+        speculative_extra = _build_speculative_cmd(params, engine)
+    if params.get("enable_sparse"):
+        sparse_extra = _build_sparse_cmd(params, engine)
+    return env_prefix + f"exec {cmd}{speculative_extra}{sparse_extra}\n"
+
+
+def start_vllm_distributed(params: Dict):
+    """分布式模式入口（sidecar MVP 中不支持）。
+
+    Raises:
+        RuntimeError: sidecar 架构不允许直接启动进程
+    """
+    raise RuntimeError("分布式模式在 sidecar launcher MVP 中已禁用。")
+
+
+def start_engine(params: Dict[str, Any]):
+    """旧版兼容接口（sidecar launcher 模式中已禁用）。
+
+    在 sidecar 架构中，适配器不允许直接启动推理进程。
+    应使用 build_start_script() 生成脚本，写入共享卷，
+    由 engine 容器执行。
+
+    Raises:
+        RuntimeError: 始终抛出，阻止意外调用
+    """
+    raise RuntimeError(
+        "start_engine 在 launcher 模式中已禁用。"
+        "请使用 build_start_command() 并将结果写入共享卷。"
+    )
+

@@ -164,8 +164,7 @@ spec:
         # --- 代理控制 ---
         - name: BACKEND_URL
           value: "http://127.0.0.1:17000"  # proxy 转发目标 (同 Pod 内 engine)
-        - name: WINGS_SKIP_PID_CHECK
-          value: "true"               # sidecar 模式跳过 PID 检查
+        # 注: PID 检查已在 sidecar 版本中移除，状态机仅依据 backend HTTP 探活判定
 
         # --- Accel 加速包 (可选，需同时部署 wings-accel initContainer) ---
         # - name: ENABLE_ACCEL

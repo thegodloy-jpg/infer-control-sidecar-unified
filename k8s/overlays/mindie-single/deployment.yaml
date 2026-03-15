@@ -98,7 +98,7 @@ spec:
               while [ ! -f /shared-volume/start_command.sh ]; do sleep 2; done
               cd /shared-volume && bash start_command.sh
           env:
-            - name: ASCEND_VISIBLE_DEVICES
+            - name: ASCEND_RT_VISIBLE_DEVICES
               value: "0"
           volumeMounts:
             - name: shared-volume

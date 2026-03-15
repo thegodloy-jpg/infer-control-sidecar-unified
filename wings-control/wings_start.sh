@@ -5,7 +5,7 @@
 #
 #  功能：
 #    与 wings/wings/wings_start.sh 完全兼容的启动脚本，接受相同的 CLI 参数和
-#    环境变量，但底层调用的是 sidecar 架构的 python -m app.main。
+#    环境变量，但底层调用的是 sidecar 架构的 python -m wings_control。
 #
 #  设计原则：
 #    - CLI 参数名称、语义、默认值与 wings_start.sh 100% 一致
@@ -17,7 +17,7 @@
 #    │ wings_start.sh → python -m wings.wings│  （单容器，进程内启动引擎）
 #    └──────────────────────────────────────┘
 #    ┌─ unified (B) ────────────────────────┐
-#    │ wings_start.sh → python -m app.main  │  （Sidecar，生成脚本→共享卷）
+#    │ wings_start.sh → python -m wings_control │  （Sidecar，生成脚本→共享卷）
 #    │   ├── proxy    :18000                │
 #    │   ├── health   :19000                │
 #    │   └── engine   :17000 (另一容器)      │
@@ -227,7 +227,9 @@ DEFAULT_PORT="18000"
 if [[ "${ENABLE_REASON_PROXY,,}" == "false" ]]; then
     BACKEND_PORT=${PORT:-$DEFAULT_PORT}
 else
-    PROXY_PORT=${PORT:-$DEFAULT_PORT}
+    # 优先使用用户通过 -e PROXY_PORT=xxx 注入的值，
+    # 其次使用 PORT（兼容旧用法），最后使用缺省值 18000。
+    PROXY_PORT=${PROXY_PORT:-${PORT:-$DEFAULT_PORT}}
     BACKEND_PORT="17000"
 fi
 
@@ -245,10 +247,10 @@ if [[ -z "$MODEL_NAME" ]]; then
 fi
 
 
-# ===== 导出环境变量给 app.main（B 的 start_args_compat.py 通过 _env() 读取） =====
+# ===== 导出环境变量给 wings_control（B 的 start_args_compat.py 通过 _env() 读取） =====
 #
-# 这里将 CLI 参数转为环境变量，使得 app.main 中的 argparse 默认值能正确继承。
-# app.main / start_args_compat.py 的 argparse 会通过 _env("VAR", default) 读取。
+# 这里将 CLI 参数转为环境变量，使得 wings_control 中的 argparse 默认值能正确继承。
+# wings_control / start_args_compat.py 的 argparse 会通过 _env("VAR", default) 读取。
 #
 export MODEL_NAME
 export MODEL_PATH
@@ -289,12 +291,14 @@ fi
 # 代理 / 端口相关
 export ENABLE_REASON_PROXY
 export PROXY_PORT="${PROXY_PORT:-18000}"
+# PORT 同步：start_args_compat.py 的 --port 默认值从 PORT 环境变量读取
+export PORT="${PROXY_PORT}"
 export RAG_ACC_ENABLED="${ENABLE_RAG_ACC:-false}"
 
 
-# ===== 构建 app.main CLI 参数 =====
+# ===== 构建 wings_control CLI 参数 =====
 #
-# 虽然环境变量已导出，但 app.main 也支持 CLI 参数（优先级高于环境变量）。
+# 虽然环境变量已导出，但 wings_control 也支持 CLI 参数（优先级高于环境变量）。
 # 这里同时传递 CLI 参数以确保与 A 的行为一模一样。
 # 使用数组而非字符串拼接，避免路径含空格时发生 word-splitting。
 #
@@ -351,7 +355,7 @@ PYTHON_BIN="${PYTHON_BIN:-python}"
 # ===== 启动 Sidecar Launcher =====
 #
 # 与 A 的核心差异：A 直接启动 wings.wings + wings_proxy 两个进程；
-# B 启动 app.main，它内部自动管理 proxy + health 两个子进程，
+# B 启动 wings_control，它内部自动管理 proxy + health 两个子进程，
 # 并将引擎启动脚本写入共享卷（由另一个容器执行）。
 #
 echo "Starting wings application (sidecar launcher) with args: ${APP_ARGS[*]}"
@@ -365,9 +369,9 @@ echo "Port plan: backend=${BACKEND_PORT} proxy=${PROXY_PORT} health=${HEALTH_POR
 echo "Enable proxy: ${ENABLE_REASON_PROXY}"
 
 # 启动 launcher（前台运行，launcher 内部自带守护循环和信号处理）
-# app.main 内部会：
+# wings_control 内部会：
 #   1. 解析参数 → 生成引擎启动脚本 → 写入共享卷
 #   2. 启动 proxy (uvicorn :18000) 和 health (uvicorn :19000) 子进程
 #   3. 进入守护循环，自动重启崩溃的子进程
 #   4. 收到 SIGTERM/SIGINT 后优雅退出所有子进程
-exec "${PYTHON_BIN}" -m app.main "${APP_ARGS[@]}"
+exec "${PYTHON_BIN}" -m wings_control "${APP_ARGS[@]}"

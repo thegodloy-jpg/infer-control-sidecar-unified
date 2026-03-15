@@ -1,17 +1,23 @@
-# Web/API 运行时依赖：launcher、proxy、health 都依赖这一组基础框架。
+# wings-control 依赖清单
+
+# Web 框架
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
 pydantic==2.5.0
 pydantic-settings==2.1.0
+
+# HTTP 客户端
 httpx==0.25.2
-orjson>=3.9.0
 requests>=2.31.0
 
-# 环境变量和配置文件加载。
+# 序列化
+orjson>=3.9.0
+
+# 配置
 python-dotenv==1.0.0
 
-# 分布式支持：主要给 vLLM/sglang 的多机场景使用。
-ray[default]>=2.9.0,<3.0
+# RAG 加速
+fschat>=0.2.36
 
-# 可选依赖：Ascend NPU 场景可能需要额外安装 torch-npu。
-# torch-npu
+# 以下包仅在引擎容器中使用，sidecar 不需要安装：
+# ray, torch, pynvml, torch-npu

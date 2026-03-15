@@ -6,7 +6,7 @@
 #   docker build -t wings-control:latest wings-control/
 #
 # 构建产物:
-#   - /app/app/*: Sidecar 后端 Python 代码
+#   - /app/*: Sidecar 后端 Python 代码（config/core/engines/proxy/utils 等）
 #   - /app/wings_start.sh: 兼容 wings 接口的启动脚本
 #   - /shared-volume: 启动脚本写入目录
 # 端口:
@@ -15,7 +15,7 @@
 #   - 19000: Health 健康检查
 # 启动方式:
 #   - CMD 默认使用 wings_start.sh，与 wings 原始容器完全兼容
-#   - 也可通过覆盖 CMD 直接运行 python -m app.main
+#   - 也可通过覆盖 CMD 直接运行 python -m wings_control
 # =============================================================================
 FROM python:3.10-slim
 
@@ -27,20 +27,30 @@ ENV PYTHONDONTWRITEBYTECODE=1
 RUN apt-get update && apt-get install -y \
     curl \
     netcat-openbsd \
+    pciutils \
+    procps \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app ./app
+COPY config ./config
+COPY core ./core
+COPY distributed ./distributed
+COPY engines ./engines
+COPY proxy ./proxy
+COPY rag_acc ./rag_acc
+COPY utils ./utils
+COPY wings_control.py __init__.py ./
 COPY wings_start.sh ./wings_start.sh
 RUN sed -i 's/\r//' ./wings_start.sh && chmod +x ./wings_start.sh
 
-RUN ls -la /app/app/ \
- && test -d /app/app/core    && echo "core/ OK" \
- && test -d /app/app/engines && echo "engines/ OK" \
- && test -d /app/app/proxy   && echo "proxy/ OK" \
- && test -d /app/app/utils   && echo "utils/ OK" \
+RUN ls -la /app/ \
+ && test -d /app/core    && echo "core/ OK" \
+ && test -d /app/engines && echo "engines/ OK" \
+ && test -d /app/proxy   && echo "proxy/ OK" \
+ && test -d /app/utils   && echo "utils/ OK" \
+ && test -f /app/wings_control.py && echo "wings_control.py OK" \
  && test -f /app/wings_start.sh && echo "wings_start.sh OK"
 
 RUN mkdir -p /shared-volume /var/log/wings
@@ -51,12 +61,7 @@ ENV http_proxy=""
 ENV https_proxy=""
 ENV APP_WORKDIR="/app"
 
-# 显式声明引擎和模型参数，构建即确定运行配置。
-# ENTRYPOINT 中的参数不可被 docker run / K8s args 覆盖，只能追加。
-ENTRYPOINT ["bash", "/app/wings_start.sh", \
-            "--engine", "vllm", \
-            "--model-name", "DeepSeek-R1-Distill-Qwen-1.5B", \
-            "--model-path", "/models/DeepSeek-R1-Distill-Qwen-1.5B", \
-            "--device-count", "1", \
-            "--trust-remote-code"]
-CMD []
+# 默认启动: bash /app/wings_start.sh（与 wings 原始容器兼容）
+# 调试覆盖: docker run wings-control:xxx bash             → 进入 shell
+# 直接运行: docker run wings-control:xxx python3 wings_control.py --engine vllm
+CMD ["bash", "/app/wings_start.sh"]

@@ -16,7 +16,7 @@
 #   1. Pod 网络: 不使用 hostNetwork, flannel CNI 分配独立 IP
 #   2. hostPath IP 交换: /tmp/wings-ip-exchange
 #   3. NODE_RANK 从 StatefulSet Pod 名称序号派生
-#   4. ASCEND_VISIBLE_DEVICES 按序号隔离 NPU
+#   4. ASCEND_RT_VISIBLE_DEVICES 按序号隔离 NPU
 #   5. npu-smi: 从宿主机挂载 (MindIE topo 检测需要)
 #   6. CANN 环境脚本: 挂载 driver + 镜像内置 CANN toolkit
 #
@@ -243,8 +243,8 @@ spec:
               ORDINAL=${POD_NAME##*-}
               # NPU 3 和 4 空闲, 映射: ordinal 0 → NPU 3, ordinal 1 → NPU 4
               NPU_ID=$((ORDINAL + 3))
-              export ASCEND_VISIBLE_DEVICES=$NPU_ID
-              echo "[engine] POD_NAME=$POD_NAME ordinal=$ORDINAL NPU=$ASCEND_VISIBLE_DEVICES POD_IP=$POD_IP"
+              export ASCEND_RT_VISIBLE_DEVICES=$NPU_ID
+              echo "[engine] POD_NAME=$POD_NAME ordinal=$ORDINAL NPU=$ASCEND_RT_VISIBLE_DEVICES POD_IP=$POD_IP"
               echo "[engine] Waiting for start_command.sh..."
               while [ ! -f /shared-volume/start_command.sh ]; do sleep 2; done
               echo "[engine] Executing:"
@@ -260,7 +260,7 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: status.podIP
-            - name: ASCEND_VISIBLE_DEVICES
+            - name: ASCEND_RT_VISIBLE_DEVICES
               value: "0"          # 会被启动脚本中的 ORDINAL 覆盖
             - name: PATH
               value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
