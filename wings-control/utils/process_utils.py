@@ -35,7 +35,8 @@ _LOG_DIR = os.path.join(root_dir, 'logs')
 def wait_for_process_startup(
     process: subprocess.Popen,
     success_message: str,
-    _logger: logging.Logger = None
+    _logger: logging.Logger = None,
+    timeout_sec: int = 300
 ) -> bool:
     """等待子进程启动并检测成功标志消息。
 
@@ -46,9 +47,14 @@ def wait_for_process_startup(
         process:         已启动的 Popen 对象
         success_message: 用于判断启动成功的字符串标志
         _logger:         可选自定义 logger，默认使用本模块 logger
+        timeout_sec:     最大等待秒数（默认 300s），超时抛出 TimeoutError
 
     Returns:
         bool: True 表示检测到启动成功消息，False 表示进程正常退出但未检测到
+
+    Raises:
+        TimeoutError: 超过 timeout_sec 仍未检测到成功消息
+        RuntimeError: 进程异常退出（returncode != 0）
     """
     if _logger is None:
         _logger = logger
@@ -77,6 +83,7 @@ def wait_for_process_startup(
     stderr_thread.start()
 
     #
+    deadline = time.monotonic() + timeout_sec
     while True:
         if started.is_set():
             _logger.info("Detected service startup success message: %s", success_message)
@@ -86,6 +93,13 @@ def wait_for_process_startup(
             if process.returncode != 0:
                 raise RuntimeError(f"Process startup failed with return code: {process.returncode}")
             return False
+
+        if time.monotonic() >= deadline:
+            _logger.error("Process startup timed out after %ds waiting for: %s", timeout_sec, success_message)
+            raise TimeoutError(
+                f"Process startup timed out after {timeout_sec}s "
+                f"waiting for success message: {success_message}"
+            )
 
         time.sleep(1)
 

@@ -33,7 +33,7 @@ set -euo pipefail
 # ===== 日志设置 =====
 LOG_DIR="${LOG_DIR:-/var/log/wings}"
 [ -d "$LOG_DIR" ] || mkdir -p "$LOG_DIR"
-chmod 777 "$LOG_DIR" 2>/dev/null || true
+chmod 750 "$LOG_DIR" 2>/dev/null || true
 
 LOG_FILE="$LOG_DIR/wings_start.log"
 TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")

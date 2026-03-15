@@ -59,14 +59,15 @@ async def create_async_client() -> httpx.AsyncClient:
         keepalive_expiry=C.KEEPALIVE_EXPIRY,
     )
 
-    #  httpx  Client(http2=True)  H2 transport
+    # 注意: 当指定 transport 时，AsyncClient 的 limits 参数会被忽略，
+    # 因此必须将 limits 传给 AsyncHTTPTransport 构造函数。
     transport = httpx.AsyncHTTPTransport(
         http2=C.HTTP2_ENABLED,
+        limits=limits,
     )
 
     client = httpx.AsyncClient(
         transport=transport,
-        limits=limits,
         timeout=httpx.Timeout(
             connect=C.HTTPX_CONNECT_TIMEOUT,
             read=None,     #

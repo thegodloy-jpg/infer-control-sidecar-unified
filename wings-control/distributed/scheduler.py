@@ -50,6 +50,7 @@ class TaskScheduler:
         self.policy = SchedulerPolicy.LEAST_LOAD
         self.max_retries = 3
         self.retry_delay = 1
+        self._rr_index = 0  # round-robin 轮询计数器
 
     @staticmethod
     def start():
@@ -71,10 +72,12 @@ class TaskScheduler:
             else x[1].workload,
         )[0]
 
-    @staticmethod
-    def _round_robin(nodes: Dict) -> str:
-        """轮询策略：取第一个节点。"""
-        return list(nodes.keys())[0]
+    def _round_robin(self, nodes: Dict) -> str:
+        """轮询策略：按顺序依次选择节点。"""
+        keys = list(nodes.keys())
+        selected = keys[self._rr_index % len(keys)]
+        self._rr_index += 1
+        return selected
 
     def set_policy(self, policy: str):
         """设置调度策略。"""

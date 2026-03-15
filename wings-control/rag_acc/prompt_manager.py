@@ -109,7 +109,7 @@ def is_chinese_text(text, threshold=0.05):
 
 
 def generate_prompt(prompt_type, question, context, analysis=None):
-    lang = "zh"
+    lang = "zh" if is_chinese_text(question) else "en"
     manager = init_template_manager()
     template = manager.get_template(lang, prompt_type)
     if not template:
